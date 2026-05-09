@@ -1,0 +1,5 @@
+# profile | endpoint | secret | guildId
+# Ejemplo:
+# main | http://ip: puerto/terraria/mission-complete | CLAVE_SECRETA | ID_SERVIDOR_DISCORD
+
+main | http://193.70.34.27:20356/terraria/mission-complete | 1029384756kenji | 1490628755201327134

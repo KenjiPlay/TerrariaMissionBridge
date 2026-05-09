@@ -1,0 +1,5 @@
+# itemId | missionId | amount | profile
+# profile es opcional. Si no lo pones, usa DefaultProfile.
+
+57 | 3 | 10 | main
+75 | 2 | 1 | main
