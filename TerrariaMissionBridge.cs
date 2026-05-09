@@ -670,4 +670,61 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
 
     private sealed class BridgeConfig
     {
-        public str
+        public string DefaultProfile { get; set; } = "main";
+        public bool ConsumeItemOnSuccess { get; set; } = true;
+    }
+
+    private sealed class BridgeProfile
+    {
+        public string Name { get; set; } = "";
+        public string Endpoint { get; set; } = "";
+        public string Secret { get; set; } = "";
+        public string GuildId { get; set; } = "";
+    }
+
+    private sealed class MissionEntry
+    {
+        public int ItemId { get; set; }
+        public string MissionId { get; set; } = "";
+        public int Amount { get; set; } = 1;
+        public string ProfileName { get; set; } = "main";
+    }
+
+    private sealed class PlayerLink
+    {
+        public string PlayerName { get; set; } = "";
+        public string DiscordUserId { get; set; } = "";
+    }
+
+    private sealed class BridgeRequest
+    {
+        [JsonPropertyName("guildId")]
+        public string GuildId { get; set; } = "";
+
+        [JsonPropertyName("userId")]
+        public string UserId { get; set; } = "";
+
+        [JsonPropertyName("missionId")]
+        public string MissionId { get; set; } = "";
+    }
+
+    private sealed class BridgeResponse
+    {
+        [JsonPropertyName("ok")]
+        public bool Ok { get; set; }
+
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
+
+        [JsonPropertyName("message")]
+        public string? Message { get; set; }
+
+        [JsonPropertyName("missionTitle")]
+        public string? MissionTitle { get; set; }
+
+        [JsonPropertyName("rewardText")]
+        public string? RewardText { get; set; }
+
+        public int StatusCode { get; set; }
+    }
+}
