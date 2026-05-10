@@ -541,14 +541,14 @@ private void ConsumeHeldItem(TSPlayer player, int amount)
     }
 
     TSPlayer.All.SendData(
-        PacketTypes.PlayerSlot,
-        "",
-        player.Index,
-        selectedSlot,
-        item.stack,
-        item.prefix,
-        item.netID
-    );
+    PacketTypes.PlayerSlot,
+    "",
+    player.Index,
+    selectedSlot,
+    item.stack,
+    item.prefix,
+    item.type
+);
 }
 
     private async System.Threading.Tasks.Task<BridgeResponse> SendMissionCompleteAsync(
