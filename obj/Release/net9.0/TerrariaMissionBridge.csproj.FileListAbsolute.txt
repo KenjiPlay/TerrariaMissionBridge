@@ -1,0 +1,14 @@
+/workspaces/TerrariaMissionBridge/bin/Release/net9.0/HttpServer.dll
+/workspaces/TerrariaMissionBridge/bin/Release/net9.0/TerrariaMissionBridge.deps.json
+/workspaces/TerrariaMissionBridge/bin/Release/net9.0/TerrariaMissionBridge.dll
+/workspaces/TerrariaMissionBridge/bin/Release/net9.0/TerrariaMissionBridge.pdb
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/TerrariaMissionBridge.csproj.AssemblyReference.cache
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/TerrariaMissionBridge.GeneratedMSBuildEditorConfig.editorconfig
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/TerrariaMissionBridge.AssemblyInfoInputs.cache
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/TerrariaMissionBridge.AssemblyInfo.cs
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/TerrariaMissionBridge.csproj.CoreCompileInputs.cache
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/TerrariaMissionBridge.sourcelink.json
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/TerrariaMissionBridge.dll
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/refint/TerrariaMissionBridge.dll
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/TerrariaMissionBridge.pdb
+/workspaces/TerrariaMissionBridge/obj/Release/net9.0/ref/TerrariaMissionBridge.dll
