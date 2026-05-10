@@ -528,27 +528,49 @@ private void ConsumeHeldItem(TSPlayer player, int amount)
 
     var item = player.TPlayer.inventory[selectedSlot];
 
-    if (item == null || item.IsAir)
+    if (item == null || item.IsAir || item.type <= 0 || item.stack <= 0)
     {
         return;
     }
 
-    item.stack -= amount;
+    var newStack = item.stack - amount;
 
-    if (item.stack <= 0)
+    if (newStack <= 0)
     {
-        item.TurnToAir();
+        item.SetDefaults(0);
+        item.stack = 0;
+        item.prefix = 0;
+    }
+    else
+    {
+        item.stack = newStack;
     }
 
-    TSPlayer.All.SendData(
-    PacketTypes.PlayerSlot,
-    "",
-    player.Index,
-    selectedSlot,
-    item.stack,
-    item.prefix,
-    item.type
-);
+    NetMessage.SendData(
+        (int)PacketTypes.PlayerSlot,
+        -1,
+        -1,
+        null,
+        player.Index,
+        selectedSlot,
+        item.stack,
+        item.prefix,
+        item.type
+    );
+
+    NetMessage.SendData(
+        (int)PacketTypes.PlayerSlot,
+        player.Index,
+        -1,
+        null,
+        player.Index,
+        selectedSlot,
+        item.stack,
+        item.prefix,
+        item.type
+    );
+
+    player.SendInfoMessage($"Se consumieron {amount}x item ID {item.type}.");
 }
 
     private async System.Threading.Tasks.Task<BridgeResponse> SendMissionCompleteAsync(
