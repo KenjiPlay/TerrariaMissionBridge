@@ -517,31 +517,39 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
         return player.TPlayer.inventory[selectedSlot];
     }
 
-    private void ConsumeHeldItem(TSPlayer player, int amount)
+private void ConsumeHeldItem(TSPlayer player, int amount)
+{
+    var selectedSlot = player.TPlayer.selectedItem;
+
+    if (selectedSlot < 0 || selectedSlot >= player.TPlayer.inventory.Length)
     {
-        var selectedSlot = player.TPlayer.selectedItem;
-
-        if (selectedSlot < 0 || selectedSlot >= player.TPlayer.inventory.Length)
-        {
-            return;
-        }
-
-        var item = player.TPlayer.inventory[selectedSlot];
-
-        if (item == null || item.IsAir)
-        {
-            return;
-        }
-
-        item.stack -= amount;
-
-        if (item.stack <= 0)
-        {
-            item.TurnToAir();
-        }
-
-        player.SendData(PacketTypes.PlayerSlot, "", player.Index, selectedSlot);
+        return;
     }
+
+    var item = player.TPlayer.inventory[selectedSlot];
+
+    if (item == null || item.IsAir)
+    {
+        return;
+    }
+
+    item.stack -= amount;
+
+    if (item.stack <= 0)
+    {
+        item.TurnToAir();
+    }
+
+    TSPlayer.All.SendData(
+        PacketTypes.PlayerSlot,
+        "",
+        player.Index,
+        selectedSlot,
+        item.stack,
+        item.prefix,
+        item.netID
+    );
+}
 
     private async System.Threading.Tasks.Task<BridgeResponse> SendMissionCompleteAsync(
         BridgeProfile profile,
