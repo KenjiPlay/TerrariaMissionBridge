@@ -26,20 +26,29 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     private readonly object _sync = new object();
 
     private BridgeConfig _config = new BridgeConfig();
+
     private readonly Dictionary<string, BridgeProfile> _profiles = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<int, List<MissionEntry>> _missionsByItemId = new();
+
+    private readonly List<MissionGroup> _missionGroups = new();
+
+    private readonly Dictionary<string, List<GroupRequirement>> _requirementsByMissionId = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, string> _players = new(StringComparer.OrdinalIgnoreCase);
 
     private string PluginDirectory => Path.Combine(TShock.SavePath, "TerrariaMissionBridge");
     private string ConfigPath => Path.Combine(PluginDirectory, "config.txt");
     private string ProfilesPath => Path.Combine(PluginDirectory, "profiles.txt");
     private string MissionsPath => Path.Combine(PluginDirectory, "missions.txt");
+    private string MissionGroupsPath => Path.Combine(PluginDirectory, "mission_groups.txt");
+    private string MissionRequirementsPath => Path.Combine(PluginDirectory, "mission_requirements.txt");
     private string PlayersPath => Path.Combine(PluginDirectory, "players.txt");
 
     public override string Name => "TerrariaMissionBridge";
     public override string Author => "Rumic Bot / OpenAI";
     public override string Description => "Conecta entregas de items de Terraria con misiones de un bot de Discord.";
-    public override Version Version => new Version(1, 2, 0);
+    public override Version Version => new Version(1, 3, 0);
 
     public TerrariaMissionBridgePlugin(Main game) : base(game)
     {
@@ -57,7 +66,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
 
         Commands.ChatCommands.Add(new Command(DeliverCommand, "entregar")
         {
-            HelpText = "Entrega el item en tu mano si coincide con una misión configurada."
+            HelpText = "Entrega una misión disponible. Usa el item en mano o revisa misiones múltiples del inventario."
         });
 
         Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, ItemInfoCommand, "mbitem")
@@ -67,7 +76,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
 
         Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, ReloadCommand, "mbreload")
         {
-            HelpText = "Recarga config.txt, profiles.txt, missions.txt y players.txt."
+            HelpText = "Recarga los archivos de TerrariaMissionBridge."
         });
 
         Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, EnableCommand, "mbon")
@@ -145,11 +154,52 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 MissionsPath,
                 string.Join(Environment.NewLine, new[]
                 {
+                    "# Misiones simples",
                     "# itemId | missionId | amount | profile",
                     "# profile es opcional. Si no lo pones, usa DefaultProfile.",
                     "",
                     "29 | madera_entregada | 10 | main",
                     "75 | espada_hierro_entregada | 1 | main"
+                }) + Environment.NewLine,
+                Encoding.UTF8);
+        }
+
+        if (!File.Exists(MissionGroupsPath))
+        {
+            File.WriteAllText(
+                MissionGroupsPath,
+                string.Join(Environment.NewLine, new[]
+                {
+                    "# Misiones múltiples",
+                    "# missionId | mode | requiredOptions | profile",
+                    "# mode:",
+                    "# group_any = requiere cumplir X opciones de todas las configuradas",
+                    "# group_all = requiere cumplir todas las opciones",
+                    "",
+                    "cajas_biomas | group_any | 5 | main"
+                }) + Environment.NewLine,
+                Encoding.UTF8);
+        }
+
+        if (!File.Exists(MissionRequirementsPath))
+        {
+            File.WriteAllText(
+                MissionRequirementsPath,
+                string.Join(Environment.NewLine, new[]
+                {
+                    "# Requisitos para misiones múltiples",
+                    "# missionId | optionId | itemId | amount | label",
+                    "",
+                    "cajas_biomas | ocean | 2334 | 2 | Caja costera",
+                    "cajas_biomas | frozen | 2335 | 2 | Caja congelada",
+                    "cajas_biomas | oasis | 4405 | 2 | Caja oasis",
+                    "cajas_biomas | jungle | 2336 | 2 | Caja jungla",
+                    "cajas_biomas | corruption | 2337 | 2 | Caja corrupción",
+                    "cajas_biomas | crimson | 2338 | 2 | Caja carmesí",
+                    "cajas_biomas | hallow | 3203 | 2 | Caja sagrada",
+                    "cajas_biomas | dungeon | 3204 | 2 | Caja calabozo",
+                    "cajas_biomas | desert | 3205 | 2 | Caja desierto",
+                    "cajas_biomas | hell | 3206 | 2 | Caja infierno"
                 }) + Environment.NewLine,
                 Encoding.UTF8);
         }
@@ -173,8 +223,11 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
         lock (_sync)
         {
             _config = LoadConfig();
+
             _profiles.Clear();
             _missionsByItemId.Clear();
+            _missionGroups.Clear();
+            _requirementsByMissionId.Clear();
             _players.Clear();
 
             foreach (var profile in LoadProfiles())
@@ -191,6 +244,22 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 }
 
                 list.Add(mission);
+            }
+
+            foreach (var group in LoadMissionGroups())
+            {
+                _missionGroups.Add(group);
+            }
+
+            foreach (var requirement in LoadMissionRequirements())
+            {
+                if (!_requirementsByMissionId.TryGetValue(requirement.MissionId, out var list))
+                {
+                    list = new List<GroupRequirement>();
+                    _requirementsByMissionId[requirement.MissionId] = list;
+                }
+
+                list.Add(requirement);
             }
 
             foreach (var player in LoadPlayers())
@@ -310,6 +379,92 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 MissionId = missionId,
                 Amount = amount,
                 ProfileName = profile
+            };
+        }
+    }
+private IEnumerable<MissionGroup> LoadMissionGroups()
+    {
+        foreach (var line in ReadUsefulLines(MissionGroupsPath))
+        {
+            var parts = SplitPipe(line);
+
+            if (parts.Length < 3)
+            {
+                continue;
+            }
+
+            var missionId = parts[0];
+            var mode = parts[1].ToLowerInvariant();
+
+            if (!int.TryParse(parts[2], out var requiredOptions))
+            {
+                requiredOptions = 1;
+            }
+
+            var profile = parts.Length >= 4 && !string.IsNullOrWhiteSpace(parts[3])
+                ? parts[3]
+                : _config.DefaultProfile;
+
+            if (string.IsNullOrWhiteSpace(missionId))
+            {
+                continue;
+            }
+
+            if (mode != "group_any" && mode != "group_all")
+            {
+                mode = "group_all";
+            }
+
+            yield return new MissionGroup
+            {
+                MissionId = missionId,
+                Mode = mode,
+                RequiredOptions = Math.Max(1, requiredOptions),
+                ProfileName = profile
+            };
+        }
+    }
+
+    private IEnumerable<GroupRequirement> LoadMissionRequirements()
+    {
+        foreach (var line in ReadUsefulLines(MissionRequirementsPath))
+        {
+            var parts = SplitPipe(line);
+
+            if (parts.Length < 4)
+            {
+                continue;
+            }
+
+            var missionId = parts[0];
+            var optionId = parts[1];
+
+            if (!int.TryParse(parts[2], out var itemId))
+            {
+                continue;
+            }
+
+            if (!int.TryParse(parts[3], out var amount))
+            {
+                amount = 1;
+            }
+
+            var label = parts.Length >= 5 && !string.IsNullOrWhiteSpace(parts[4])
+                ? parts[4]
+                : $"Item {itemId}";
+
+            if (string.IsNullOrWhiteSpace(missionId) || string.IsNullOrWhiteSpace(optionId))
+            {
+                continue;
+            }
+
+            yield return new GroupRequirement
+            {
+                MissionId = missionId,
+                OptionId = optionId,
+                ItemId = itemId,
+                Amount = Math.Max(1, amount),
+                Label = label
             };
         }
     }
@@ -474,45 +629,121 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
             return;
         }
 
+        if (TryFindSimpleMission(player, out var simpleMission, out var simpleProfile))
+        {
+            await DeliverSimpleMissionAsync(player, discordUserId, simpleMission, simpleProfile);
+            return;
+        }
+
+        if (TryFindGroupMission(player, out var groupMission, out var groupProfile, out var groupPlan))
+        {
+            await DeliverGroupMissionAsync(player, discordUserId, groupMission, groupProfile, groupPlan);
+            return;
+        }
+
+        player.SendErrorMessage("No tienes ningún item o conjunto de items listo para entregar.");
+    }
+
+    private bool TryFindSimpleMission(
+        TSPlayer player,
+        out MissionEntry mission,
+        out BridgeProfile profile)
+    {
+        mission = new MissionEntry();
+        profile = new BridgeProfile();
+
         var heldItem = GetHeldItem(player);
 
         if (heldItem == null || heldItem.IsAir || heldItem.type <= 0 || heldItem.stack <= 0)
         {
-            player.SendErrorMessage("Debes tener en la mano el item que quieres entregar.");
-            return;
+            return false;
         }
 
-        MissionEntry? mission = null;
-        BridgeProfile? profile = null;
+        MissionEntry? foundMission = null;
+        BridgeProfile? foundProfile = null;
 
         lock (_sync)
         {
             if (_missionsByItemId.TryGetValue(heldItem.type, out var missions))
             {
-                mission = missions.FirstOrDefault(entry => heldItem.stack >= entry.Amount);
+                foundMission = missions.FirstOrDefault(entry => heldItem.stack >= entry.Amount);
 
-                if (mission != null)
+                if (foundMission != null)
                 {
-                    _profiles.TryGetValue(mission.ProfileName, out profile);
+                    _profiles.TryGetValue(foundMission.ProfileName, out foundProfile);
                 }
             }
         }
 
-        if (mission == null)
+        if (foundMission == null || foundProfile == null)
         {
-            player.SendErrorMessage($"El item en tu mano no está configurado como misión. ID del item: {heldItem.type}");
-            return;
+            return false;
         }
 
-        if (heldItem.stack < mission.Amount)
+        mission = foundMission;
+        profile = foundProfile;
+        return true;
+    }
+
+    private bool TryFindGroupMission(
+        TSPlayer player,
+        out MissionGroup group,
+        out BridgeProfile profile,
+        out GroupDeliveryPlan plan)
+    {
+        group = new MissionGroup();
+        profile = new BridgeProfile();
+        plan = new GroupDeliveryPlan();
+
+        List<MissionGroup> groupsSnapshot;
+        Dictionary<string, List<GroupRequirement>> requirementsSnapshot;
+        Dictionary<string, BridgeProfile> profilesSnapshot;
+
+        lock (_sync)
         {
-            player.SendErrorMessage($"Necesitas {mission.Amount}x {heldItem.Name}. Tienes {heldItem.stack}.");
-            return;
+            groupsSnapshot = _missionGroups.ToList();
+            requirementsSnapshot = _requirementsByMissionId.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.ToList(),
+                StringComparer.OrdinalIgnoreCase);
+            profilesSnapshot = new Dictionary<string, BridgeProfile>(_profiles, StringComparer.OrdinalIgnoreCase);
         }
 
-        if (profile == null)
+        foreach (var currentGroup in groupsSnapshot)
         {
-            player.SendErrorMessage($"La misión usa el perfil '{mission.ProfileName}', pero ese perfil no existe en profiles.txt.");
+            if (!requirementsSnapshot.TryGetValue(currentGroup.MissionId, out var requirements))
+            {
+                continue;
+            }
+
+            if (!profilesSnapshot.TryGetValue(currentGroup.ProfileName, out var currentProfile))
+            {
+                continue;
+            }
+
+            if (TryBuildGroupDeliveryPlan(player, currentGroup, requirements, out var currentPlan))
+            {
+                group = currentGroup;
+                profile = currentProfile;
+                plan = currentPlan;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async System.Threading.Tasks.Task DeliverSimpleMissionAsync(
+        TSPlayer player,
+        string discordUserId,
+        MissionEntry mission,
+        BridgeProfile profile)
+    {
+        var heldItem = GetHeldItem(player);
+
+        if (heldItem == null || heldItem.IsAir || heldItem.type != mission.ItemId || heldItem.stack < mission.Amount)
+        {
+            player.SendErrorMessage("Ya no tienes el item requerido en la mano.");
             return;
         }
 
@@ -531,24 +762,26 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
         if (
             revalidatedItem == null ||
             revalidatedItem.IsAir ||
-            revalidatedItem.type != heldItem.type ||
+            revalidatedItem.type != mission.ItemId ||
             revalidatedItem.stack < mission.Amount)
         {
             player.SendErrorMessage("La misión fue validada, pero ya no tienes el item requerido en la mano. No se completó ni se consumió nada.");
             return;
         }
 
-        ConsumedItem? consumedItem = null;
+        var consumedItems = new List<ConsumedItem>();
 
         if (_config.ConsumeItemOnSuccess)
         {
-            consumedItem = ConsumeHeldItem(player, mission.Amount);
+            var consumedItem = ConsumeHeldItem(player, mission.Amount);
 
             if (consumedItem == null)
             {
                 player.SendErrorMessage("No pude consumir el item requerido. No se completó la misión.");
                 return;
             }
+
+            consumedItems.Add(consumedItem);
         }
 
         player.SendInfoMessage($"Completando misión '{mission.MissionId}' con el bot...");
@@ -557,12 +790,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
 
         if (!completeResponse.Ok)
         {
-            if (consumedItem != null)
-            {
-                RefundConsumedItem(player, consumedItem);
-                player.SendErrorMessage("El bot rechazó la misión después de consumir el item. Se intentó devolver el item a tu inventario.");
-            }
-
+            RefundConsumedItems(player, consumedItems);
             player.SendErrorMessage(GetFriendlyBridgeError(completeResponse));
             return;
         }
@@ -574,7 +802,196 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
             player.SendInfoMessage(completeResponse.RewardText);
         }
     }
-private Item? GetHeldItem(TSPlayer player)
+
+    private async System.Threading.Tasks.Task DeliverGroupMissionAsync(
+        TSPlayer player,
+        string discordUserId,
+        MissionGroup group,
+        BridgeProfile profile,
+        GroupDeliveryPlan initialPlan)
+    {
+        player.SendInfoMessage($"Validando misión múltiple '{group.MissionId}' con el bot...");
+
+        var prepareResponse = await SendMissionPrepareAsync(profile, discordUserId, group.MissionId);
+
+        if (!prepareResponse.Ok)
+        {
+            player.SendErrorMessage(GetFriendlyBridgeError(prepareResponse));
+            return;
+        }
+
+        List<GroupRequirement>? requirements;
+
+        lock (_sync)
+        {
+            _requirementsByMissionId.TryGetValue(group.MissionId, out requirements);
+            requirements = requirements?.ToList();
+        }
+
+        if (requirements == null || !TryBuildGroupDeliveryPlan(player, group, requirements, out var finalPlan))
+        {
+            player.SendErrorMessage("La misión fue validada, pero ya no tienes los items requeridos. No se completó ni se consumió nada.");
+            return;
+        }
+
+        List<ConsumedItem> consumedItems = new List<ConsumedItem>();
+
+        if (_config.ConsumeItemOnSuccess)
+        {
+            consumedItems = ConsumeGroupPlan(player, finalPlan);
+
+            if (consumedItems.Count <= 0)
+            {
+                player.SendErrorMessage("No pude consumir los items requeridos. No se completó la misión.");
+                return;
+            }
+        }
+
+        player.SendInfoMessage($"Completando misión múltiple '{group.MissionId}' con el bot...");
+
+        var completeResponse = await SendMissionCompleteAsync(profile, discordUserId, group.MissionId);
+
+        if (!completeResponse.Ok)
+        {
+            RefundConsumedItems(player, consumedItems);
+            player.SendErrorMessage(GetFriendlyBridgeError(completeResponse));
+            return;
+        }
+
+        player.SendSuccessMessage($"Misión completada: {completeResponse.MissionTitle ?? group.MissionId}");
+
+        if (finalPlan.SelectedRequirements.Count > 0)
+        {
+            player.SendInfoMessage("Items entregados:");
+            foreach (var requirement in finalPlan.SelectedRequirements)
+            {
+                player.SendInfoMessage($"- {requirement.Amount}x {requirement.Label}");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(completeResponse.RewardText))
+        {
+            player.SendInfoMessage(completeResponse.RewardText);
+        }
+    }
+private bool TryBuildGroupDeliveryPlan(
+        TSPlayer player,
+        MissionGroup group,
+        List<GroupRequirement> requirements,
+        out GroupDeliveryPlan plan)
+    {
+        plan = new GroupDeliveryPlan
+        {
+            MissionId = group.MissionId
+        };
+
+        if (requirements.Count <= 0)
+        {
+            return false;
+        }
+
+        var states = BuildInventoryStates(player);
+        var selectedRequirements = new List<GroupRequirement>();
+        var selectedItems = new List<ConsumedItem>();
+
+        foreach (var requirement in requirements)
+        {
+            if (TryAllocateRequirement(states, requirement, out var consumedItems))
+            {
+                selectedRequirements.Add(requirement);
+                selectedItems.AddRange(consumedItems);
+
+                if (group.Mode == "group_any" && selectedRequirements.Count >= group.RequiredOptions)
+                {
+                    break;
+                }
+            }
+        }
+
+        var requiredCount = group.Mode == "group_all"
+            ? requirements.Count
+            : Math.Min(group.RequiredOptions, requirements.Count);
+
+        if (selectedRequirements.Count < requiredCount)
+        {
+            return false;
+        }
+
+        plan.SelectedRequirements = selectedRequirements;
+        plan.ItemsToConsume = selectedItems;
+        return true;
+    }
+
+    private List<InventorySlotState> BuildInventoryStates(TSPlayer player)
+    {
+        var states = new List<InventorySlotState>();
+
+        for (var slot = 0; slot < player.TPlayer.inventory.Length; slot++)
+        {
+            var item = player.TPlayer.inventory[slot];
+
+            if (item == null || item.IsAir || item.type <= 0 || item.stack <= 0)
+            {
+                continue;
+            }
+
+            states.Add(new InventorySlotState
+            {
+                Slot = slot,
+                Type = item.type,
+                StackRemaining = item.stack,
+                Prefix = item.prefix,
+                Name = item.Name
+            });
+        }
+
+        return states;
+    }
+
+    private bool TryAllocateRequirement(
+        List<InventorySlotState> states,
+        GroupRequirement requirement,
+        out List<ConsumedItem> consumedItems)
+    {
+        consumedItems = new List<ConsumedItem>();
+
+        var available = states
+            .Where(state => state.Type == requirement.ItemId && state.StackRemaining > 0)
+            .Sum(state => state.StackRemaining);
+
+        if (available < requirement.Amount)
+        {
+            return false;
+        }
+
+        var remaining = requirement.Amount;
+
+        foreach (var state in states.Where(state => state.Type == requirement.ItemId && state.StackRemaining > 0))
+        {
+            if (remaining <= 0)
+            {
+                break;
+            }
+
+            var take = Math.Min(state.StackRemaining, remaining);
+
+            state.StackRemaining -= take;
+            remaining -= take;
+
+            consumedItems.Add(new ConsumedItem
+            {
+                Slot = state.Slot,
+                Type = state.Type,
+                Stack = take,
+                Prefix = state.Prefix,
+                Name = state.Name
+            });
+        }
+
+        return remaining <= 0;
+    }
+
+    private Item? GetHeldItem(TSPlayer player)
     {
         var selectedSlot = player.TPlayer.selectedItem;
 
@@ -630,6 +1047,72 @@ private Item? GetHeldItem(TSPlayer player)
         player.SendInfoMessage($"Se consumieron {amount}x {consumed.Name}.");
 
         return consumed;
+    }
+
+    private List<ConsumedItem> ConsumeGroupPlan(TSPlayer player, GroupDeliveryPlan plan)
+    {
+        var consumedItems = new List<ConsumedItem>();
+
+        foreach (var planned in plan.ItemsToConsume)
+        {
+            if (planned.Slot < 0 || planned.Slot >= player.TPlayer.inventory.Length)
+            {
+                return new List<ConsumedItem>();
+            }
+
+            var item = player.TPlayer.inventory[planned.Slot];
+
+            if (
+                item == null ||
+                item.IsAir ||
+                item.type != planned.Type ||
+                item.stack < planned.Stack)
+            {
+                return new List<ConsumedItem>();
+            }
+        }
+
+        foreach (var planned in plan.ItemsToConsume)
+        {
+            var item = player.TPlayer.inventory[planned.Slot];
+
+            consumedItems.Add(new ConsumedItem
+            {
+                Slot = planned.Slot,
+                Type = item.type,
+                Stack = planned.Stack,
+                Prefix = item.prefix,
+                Name = item.Name
+            });
+
+            item.stack -= planned.Stack;
+
+            if (item.stack <= 0)
+            {
+                item.SetDefaults(0);
+                item.stack = 0;
+                item.prefix = 0;
+            }
+
+            SyncInventorySlot(player, planned.Slot);
+        }
+
+        return consumedItems;
+    }
+
+    private void RefundConsumedItems(TSPlayer player, List<ConsumedItem> consumedItems)
+    {
+        if (consumedItems.Count <= 0)
+        {
+            return;
+        }
+
+        foreach (var consumed in consumedItems.AsEnumerable().Reverse())
+        {
+            RefundConsumedItem(player, consumed);
+        }
+
+        player.SendErrorMessage("El bot rechazó la misión después de consumir items. Se intentó devolver lo consumido.");
     }
 
     private void RefundConsumedItem(TSPlayer player, ConsumedItem consumed)
@@ -895,6 +1378,8 @@ private Item? GetHeldItem(TSPlayer player)
         args.Player.SendInfoMessage($"Sistema de entregas: {status}");
         args.Player.SendInfoMessage($"Perfil por defecto: {_config.DefaultProfile}");
         args.Player.SendInfoMessage($"Consumir items al completar: {consume}");
+        args.Player.SendInfoMessage($"Misiones simples: {_missionsByItemId.Values.Sum(list => list.Count)}");
+        args.Player.SendInfoMessage($"Misiones múltiples: {_missionGroups.Count}");
     }
 
     private void ItemInfoCommand(CommandArgs args)
@@ -926,7 +1411,7 @@ private Item? GetHeldItem(TSPlayer player)
 
             args.Player.SendSuccessMessage("TerrariaMissionBridge recargado correctamente.");
             args.Player.SendInfoMessage($"Estado: {(_config.Enabled ? "Activado" : "Desactivado")}");
-            args.Player.SendInfoMessage($"Perfiles: {_profiles.Count} | Items con misión: {_missionsByItemId.Count} | Jugadores vinculados: {_players.Count}");
+            args.Player.SendInfoMessage($"Perfiles: {_profiles.Count} | Simples: {_missionsByItemId.Values.Sum(list => list.Count)} | Múltiples: {_missionGroups.Count} | Jugadores vinculados: {_players.Count}");
         }
         catch (Exception ex)
         {
@@ -961,6 +1446,39 @@ private Item? GetHeldItem(TSPlayer player)
         public string MissionId { get; set; } = "";
         public int Amount { get; set; } = 1;
         public string ProfileName { get; set; } = "main";
+    }
+
+    private sealed class MissionGroup
+    {
+        public string MissionId { get; set; } = "";
+        public string Mode { get; set; } = "group_all";
+        public int RequiredOptions { get; set; } = 1;
+        public string ProfileName { get; set; } = "main";
+    }
+
+    private sealed class GroupRequirement
+    {
+        public string MissionId { get; set; } = "";
+        public string OptionId { get; set; } = "";
+        public int ItemId { get; set; }
+        public int Amount { get; set; } = 1;
+        public string Label { get; set; } = "";
+    }
+
+    private sealed class GroupDeliveryPlan
+    {
+        public string MissionId { get; set; } = "";
+        public List<GroupRequirement> SelectedRequirements { get; set; } = new();
+        public List<ConsumedItem> ItemsToConsume { get; set; } = new();
+    }
+
+    private sealed class InventorySlotState
+    {
+        public int Slot { get; set; }
+        public int Type { get; set; }
+        public int StackRemaining { get; set; }
+        public byte Prefix { get; set; }
+        public string Name { get; set; } = "";
     }
 
     private sealed class PlayerLink
