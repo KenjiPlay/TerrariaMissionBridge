@@ -39,7 +39,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     public override string Name => "TerrariaMissionBridge";
     public override string Author => "Rumic Bot / OpenAI";
     public override string Description => "Conecta entregas de items de Terraria con misiones de un bot de Discord.";
-    public override Version Version => new Version(1, 1, 0);
+    public override Version Version => new Version(1, 2, 0);
 
     public TerrariaMissionBridgePlugin(Main game) : base(game)
     {
@@ -69,6 +69,21 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
         {
             HelpText = "Recarga config.txt, profiles.txt, missions.txt y players.txt."
         });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, EnableCommand, "mbon")
+        {
+            HelpText = "Activa el sistema de entregas."
+        });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, DisableCommand, "mboff")
+        {
+            HelpText = "Desactiva temporalmente el sistema de entregas."
+        });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, StatusCommand, "mbstatus")
+        {
+            HelpText = "Muestra el estado actual del sistema de entregas."
+        });
     }
 
     protected override void Dispose(bool disposing)
@@ -79,7 +94,10 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 command.Names.Contains("discord") ||
                 command.Names.Contains("entregar") ||
                 command.Names.Contains("mbitem") ||
-                command.Names.Contains("mbreload"));
+                command.Names.Contains("mbreload") ||
+                command.Names.Contains("mbon") ||
+                command.Names.Contains("mboff") ||
+                command.Names.Contains("mbstatus"));
         }
 
         base.Dispose(disposing);
@@ -97,6 +115,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 {
                     "# Config general del plugin",
                     "",
+                    "Enabled = true",
                     "DefaultProfile = main",
                     "ConsumeItemOnSuccess = true"
                 }) + Environment.NewLine,
@@ -196,6 +215,11 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
 
             var key = parts[0];
             var value = parts[1];
+
+            if (key.Equals("Enabled", StringComparison.OrdinalIgnoreCase))
+            {
+                config.Enabled = ParseBoolean(value, true);
+            }
 
             if (key.Equals("DefaultProfile", StringComparison.OrdinalIgnoreCase))
             {
@@ -428,6 +452,12 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
 
         if (player == null || !player.Active)
         {
+            return;
+        }
+
+        if (!_config.Enabled)
+        {
+            player.SendErrorMessage("El sistema de entregas está desactivado temporalmente.");
             return;
         }
 
@@ -821,6 +851,52 @@ private Item? GetHeldItem(TSPlayer player)
         };
     }
 
+    private void SaveConfig()
+    {
+        var lines = new List<string>
+        {
+            "# Config general del plugin",
+            "",
+            $"Enabled = {_config.Enabled.ToString().ToLowerInvariant()}",
+            $"DefaultProfile = {_config.DefaultProfile}",
+            $"ConsumeItemOnSuccess = {_config.ConsumeItemOnSuccess.ToString().ToLowerInvariant()}"
+        };
+
+        File.WriteAllLines(ConfigPath, lines, Encoding.UTF8);
+    }
+
+    private void EnableCommand(CommandArgs args)
+    {
+        lock (_sync)
+        {
+            _config.Enabled = true;
+            SaveConfig();
+        }
+
+        args.Player.SendSuccessMessage("Sistema de entregas activado.");
+    }
+
+    private void DisableCommand(CommandArgs args)
+    {
+        lock (_sync)
+        {
+            _config.Enabled = false;
+            SaveConfig();
+        }
+
+        args.Player.SendSuccessMessage("Sistema de entregas desactivado temporalmente.");
+    }
+
+    private void StatusCommand(CommandArgs args)
+    {
+        var status = _config.Enabled ? "Activado" : "Desactivado";
+        var consume = _config.ConsumeItemOnSuccess ? "Sí" : "No";
+
+        args.Player.SendInfoMessage($"Sistema de entregas: {status}");
+        args.Player.SendInfoMessage($"Perfil por defecto: {_config.DefaultProfile}");
+        args.Player.SendInfoMessage($"Consumir items al completar: {consume}");
+    }
+
     private void ItemInfoCommand(CommandArgs args)
     {
         var player = args.Player;
@@ -849,6 +925,7 @@ private Item? GetHeldItem(TSPlayer player)
             ReloadFiles();
 
             args.Player.SendSuccessMessage("TerrariaMissionBridge recargado correctamente.");
+            args.Player.SendInfoMessage($"Estado: {(_config.Enabled ? "Activado" : "Desactivado")}");
             args.Player.SendInfoMessage($"Perfiles: {_profiles.Count} | Items con misión: {_missionsByItemId.Count} | Jugadores vinculados: {_players.Count}");
         }
         catch (Exception ex)
@@ -865,6 +942,7 @@ private Item? GetHeldItem(TSPlayer player)
 
     private sealed class BridgeConfig
     {
+        public bool Enabled { get; set; } = true;
         public string DefaultProfile { get; set; } = "main";
         public bool ConsumeItemOnSuccess { get; set; } = true;
     }
