@@ -39,7 +39,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     public override string Name => "TerrariaMissionBridge";
     public override string Author => "Rumic Bot / OpenAI";
     public override string Description => "Conecta entregas de items de Terraria con misiones de un bot de Discord.";
-    public override Version Version => new Version(1, 0, 0);
+    public override Version Version => new Version(1, 1, 0);
 
     public TerrariaMissionBridgePlugin(Main game) : base(game)
     {
@@ -110,6 +110,8 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 string.Join(Environment.NewLine, new[]
                 {
                     "# profile | endpoint | secret | guildId",
+                    "# endpoint debe apuntar a /terraria/mission-complete",
+                    "# El plugin calculará /terraria/mission-prepare automáticamente.",
                     "# Ejemplo:",
                     "# main | http://IP_O_DOMINIO_DEL_BOT:PUERTO/terraria/mission-complete | CLAVE_SECRETA | ID_SERVIDOR_DISCORD",
                     "",
@@ -430,6 +432,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
         }
 
         string? discordUserId;
+
         lock (_sync)
         {
             _players.TryGetValue(player.Name, out discordUserId);
@@ -483,29 +486,65 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
             return;
         }
 
-        player.SendInfoMessage($"Entregando misión '{mission.MissionId}' al bot...");
+        player.SendInfoMessage($"Validando misión '{mission.MissionId}' con el bot...");
 
-        var response = await SendMissionCompleteAsync(profile, discordUserId, mission.MissionId);
+        var prepareResponse = await SendMissionPrepareAsync(profile, discordUserId, mission.MissionId);
 
-        if (!response.Ok)
+        if (!prepareResponse.Ok)
         {
-            player.SendErrorMessage(GetFriendlyBridgeError(response));
+            player.SendErrorMessage(GetFriendlyBridgeError(prepareResponse));
             return;
         }
 
+        var revalidatedItem = GetHeldItem(player);
+
+        if (
+            revalidatedItem == null ||
+            revalidatedItem.IsAir ||
+            revalidatedItem.type != heldItem.type ||
+            revalidatedItem.stack < mission.Amount)
+        {
+            player.SendErrorMessage("La misión fue validada, pero ya no tienes el item requerido en la mano. No se completó ni se consumió nada.");
+            return;
+        }
+
+        ConsumedItem? consumedItem = null;
+
         if (_config.ConsumeItemOnSuccess)
         {
-            ConsumeHeldItem(player, mission.Amount);
+            consumedItem = ConsumeHeldItem(player, mission.Amount);
+
+            if (consumedItem == null)
+            {
+                player.SendErrorMessage("No pude consumir el item requerido. No se completó la misión.");
+                return;
+            }
         }
 
-        player.SendSuccessMessage($"Misión completada: {response.MissionTitle ?? mission.MissionId}");
-        if (!string.IsNullOrWhiteSpace(response.RewardText))
+        player.SendInfoMessage($"Completando misión '{mission.MissionId}' con el bot...");
+
+        var completeResponse = await SendMissionCompleteAsync(profile, discordUserId, mission.MissionId);
+
+        if (!completeResponse.Ok)
         {
-            player.SendInfoMessage(response.RewardText);
+            if (consumedItem != null)
+            {
+                RefundConsumedItem(player, consumedItem);
+                player.SendErrorMessage("El bot rechazó la misión después de consumir el item. Se intentó devolver el item a tu inventario.");
+            }
+
+            player.SendErrorMessage(GetFriendlyBridgeError(completeResponse));
+            return;
+        }
+
+        player.SendSuccessMessage($"Misión completada: {completeResponse.MissionTitle ?? mission.MissionId}");
+
+        if (!string.IsNullOrWhiteSpace(completeResponse.RewardText))
+        {
+            player.SendInfoMessage(completeResponse.RewardText);
         }
     }
-
-    private Item? GetHeldItem(TSPlayer player)
+private Item? GetHeldItem(TSPlayer player)
     {
         var selectedSlot = player.TPlayer.selectedItem;
 
@@ -517,63 +556,189 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
         return player.TPlayer.inventory[selectedSlot];
     }
 
-private void ConsumeHeldItem(TSPlayer player, int amount)
-{
-    var selectedSlot = player.TPlayer.selectedItem;
-
-    if (selectedSlot < 0 || selectedSlot >= player.TPlayer.inventory.Length)
+    private ConsumedItem? ConsumeHeldItem(TSPlayer player, int amount)
     {
-        return;
+        var selectedSlot = player.TPlayer.selectedItem;
+
+        if (selectedSlot < 0 || selectedSlot >= player.TPlayer.inventory.Length)
+        {
+            return null;
+        }
+
+        var item = player.TPlayer.inventory[selectedSlot];
+
+        if (item == null || item.IsAir || item.type <= 0 || item.stack <= 0)
+        {
+            return null;
+        }
+
+        if (item.stack < amount)
+        {
+            return null;
+        }
+
+        var consumed = new ConsumedItem
+        {
+            Slot = selectedSlot,
+            Type = item.type,
+            Stack = amount,
+            Prefix = item.prefix,
+            Name = item.Name
+        };
+
+        item.stack -= amount;
+
+        if (item.stack <= 0)
+        {
+            item.SetDefaults(0);
+            item.stack = 0;
+            item.prefix = 0;
+        }
+
+        SyncInventorySlot(player, selectedSlot);
+
+        player.SendInfoMessage($"Se consumieron {amount}x {consumed.Name}.");
+
+        return consumed;
     }
 
-    var item = player.TPlayer.inventory[selectedSlot];
-
-    if (item == null || item.IsAir || item.type <= 0 || item.stack <= 0)
+    private void RefundConsumedItem(TSPlayer player, ConsumedItem consumed)
     {
-        return;
+        if (TryRefundToSlot(player, consumed.Slot, consumed))
+        {
+            return;
+        }
+
+        for (var slot = 0; slot < player.TPlayer.inventory.Length; slot++)
+        {
+            if (TryRefundToSlot(player, slot, consumed))
+            {
+                return;
+            }
+        }
+
+        player.SendErrorMessage($"No se pudo devolver automáticamente {consumed.Stack}x item ID {consumed.Type}. Contacta a un admin.");
     }
 
-    var newStack = item.stack - amount;
-
-    if (newStack <= 0)
+    private bool TryRefundToSlot(TSPlayer player, int slot, ConsumedItem consumed)
     {
-        item.SetDefaults(0);
-        item.stack = 0;
-        item.prefix = 0;
+        if (slot < 0 || slot >= player.TPlayer.inventory.Length)
+        {
+            return false;
+        }
+
+        var item = player.TPlayer.inventory[slot];
+
+        if (item == null)
+        {
+            return false;
+        }
+
+        if (item.IsAir || item.type <= 0 || item.stack <= 0)
+        {
+            item.SetDefaults(consumed.Type);
+            item.prefix = consumed.Prefix;
+            item.stack = consumed.Stack;
+
+            SyncInventorySlot(player, slot);
+            return true;
+        }
+
+        if (item.type == consumed.Type && item.prefix == consumed.Prefix)
+        {
+            item.stack += consumed.Stack;
+
+            SyncInventorySlot(player, slot);
+            return true;
+        }
+
+        return false;
     }
-    else
+
+    private void SyncInventorySlot(TSPlayer player, int slot)
     {
-        item.stack = newStack;
+        if (slot < 0 || slot >= player.TPlayer.inventory.Length)
+        {
+            return;
+        }
+
+        var item = player.TPlayer.inventory[slot];
+
+        if (item == null)
+        {
+            return;
+        }
+
+        NetMessage.SendData(
+            (int)PacketTypes.PlayerSlot,
+            -1,
+            -1,
+            null,
+            player.Index,
+            slot,
+            item.stack,
+            item.prefix,
+            item.type
+        );
+
+        NetMessage.SendData(
+            (int)PacketTypes.PlayerSlot,
+            player.Index,
+            -1,
+            null,
+            player.Index,
+            slot,
+            item.stack,
+            item.prefix,
+            item.type
+        );
     }
 
-    NetMessage.SendData(
-        (int)PacketTypes.PlayerSlot,
-        -1,
-        -1,
-        null,
-        player.Index,
-        selectedSlot,
-        item.stack,
-        item.prefix,
-        item.type
-    );
+    private async System.Threading.Tasks.Task<BridgeResponse> SendMissionPrepareAsync(
+        BridgeProfile profile,
+        string userId,
+        string missionId)
+    {
+        var prepareEndpoint = GetPrepareEndpoint(profile.Endpoint);
 
-    NetMessage.SendData(
-        (int)PacketTypes.PlayerSlot,
-        player.Index,
-        -1,
-        null,
-        player.Index,
-        selectedSlot,
-        item.stack,
-        item.prefix,
-        item.type
-    );
-
-    player.SendInfoMessage($"Se consumieron {amount}x item ID {item.type}.");
-}
+        return await SendBridgeRequestAsync(
+            endpoint: prepareEndpoint,
+            profile: profile,
+            userId: userId,
+            missionId: missionId);
+    }
 
     private async System.Threading.Tasks.Task<BridgeResponse> SendMissionCompleteAsync(
+        BridgeProfile profile,
+        string userId,
+        string missionId)
+    {
+        return await SendBridgeRequestAsync(
+            endpoint: profile.Endpoint,
+            profile: profile,
+            userId: userId,
+            missionId: missionId);
+    }
+
+    private string GetPrepareEndpoint(string completeEndpoint)
+    {
+        var endpoint = (completeEndpoint ?? "").Trim();
+
+        if (endpoint.EndsWith("/terraria/mission-complete", StringComparison.OrdinalIgnoreCase))
+        {
+            return endpoint[..^"/terraria/mission-complete".Length] + "/terraria/mission-prepare";
+        }
+
+        if (endpoint.EndsWith("/mission-complete", StringComparison.OrdinalIgnoreCase))
+        {
+            return endpoint[..^"/mission-complete".Length] + "/mission-prepare";
+        }
+
+        return endpoint.TrimEnd('/') + "/terraria/mission-prepare";
+    }
+
+    private async System.Threading.Tasks.Task<BridgeResponse> SendBridgeRequestAsync(
+        string endpoint,
         BridgeProfile profile,
         string userId,
         string missionId)
@@ -586,7 +751,7 @@ private void ConsumeHeldItem(TSPlayer player, int amount)
         };
 
         var json = JsonSerializer.Serialize(payload);
-        using var request = new HttpRequestMessage(HttpMethod.Post, profile.Endpoint);
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
 
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", profile.Secret);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -724,6 +889,15 @@ private void ConsumeHeldItem(TSPlayer player, int amount)
     {
         public string PlayerName { get; set; } = "";
         public string DiscordUserId { get; set; } = "";
+    }
+
+    private sealed class ConsumedItem
+    {
+        public int Slot { get; set; }
+        public int Type { get; set; }
+        public int Stack { get; set; }
+        public byte Prefix { get; set; }
+        public string Name { get; set; } = "";
     }
 
     private sealed class BridgeRequest
