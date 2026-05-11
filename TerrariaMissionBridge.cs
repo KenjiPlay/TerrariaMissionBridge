@@ -28,13 +28,9 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     private BridgeConfig _config = new BridgeConfig();
 
     private readonly Dictionary<string, BridgeProfile> _profiles = new(StringComparer.OrdinalIgnoreCase);
-
     private readonly Dictionary<int, List<MissionEntry>> _missionsByItemId = new();
-
     private readonly List<MissionGroup> _missionGroups = new();
-
     private readonly Dictionary<string, List<GroupRequirement>> _requirementsByMissionId = new(StringComparer.OrdinalIgnoreCase);
-
     private readonly Dictionary<string, string> _players = new(StringComparer.OrdinalIgnoreCase);
 
     private string PluginDirectory => Path.Combine(TShock.SavePath, "TerrariaMissionBridge");
@@ -48,7 +44,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     public override string Name => "TerrariaMissionBridge";
     public override string Author => "Rumic Bot / OpenAI";
     public override string Description => "Conecta entregas de items de Terraria con misiones de un bot de Discord.";
-    public override Version Version => new Version(1, 3, 0);
+    public override Version Version => new Version(1, 4, 0);
 
     public TerrariaMissionBridgePlugin(Main game) : base(game)
     {
@@ -61,7 +57,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
 
         Commands.ChatCommands.Add(new Command(DiscordCommand, "discord")
         {
-            HelpText = "Vincula tu personaje con Discord. Uso: /discord <idDiscord>"
+            HelpText = "Vincula tu personaje con Discord. Uso: /discord <codigo>"
         });
 
         Commands.ChatCommands.Add(new Command(DeliverCommand, "entregar")
@@ -139,7 +135,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 {
                     "# profile | endpoint | secret | guildId",
                     "# endpoint debe apuntar a /terraria/mission-complete",
-                    "# El plugin calculará /terraria/mission-prepare automáticamente.",
+                    "# El plugin calculará /terraria/mission-prepare y /terraria/link-verify automáticamente.",
                     "# Ejemplo:",
                     "# main | http://IP_O_DOMINIO_DEL_BOT:PUERTO/terraria/mission-complete | CLAVE_SECRETA | ID_SERVIDOR_DISCORD",
                     "",
@@ -211,7 +207,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 string.Join(Environment.NewLine, new[]
                 {
                     "# playerName | discordUserId",
-                    "# Este archivo también se puede llenar con /discord <idDiscord>.",
+                    "# Este archivo se llena usando /discord <codigo>.",
                     ""
                 }) + Environment.NewLine,
                 Encoding.UTF8);
@@ -268,8 +264,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
             }
         }
     }
-
-    private BridgeConfig LoadConfig()
+private BridgeConfig LoadConfig()
     {
         var config = new BridgeConfig();
 
@@ -382,7 +377,8 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
             };
         }
     }
-private IEnumerable<MissionGroup> LoadMissionGroups()
+
+    private IEnumerable<MissionGroup> LoadMissionGroups()
     {
         foreach (var line in ReadUsefulLines(MissionGroupsPath))
         {
@@ -534,7 +530,20 @@ private IEnumerable<MissionGroup> LoadMissionGroups()
         return fallback;
     }
 
-    private void DiscordCommand(CommandArgs args)
+    private async void DiscordCommand(CommandArgs args)
+    {
+        try
+        {
+            await DiscordCommandAsync(args);
+        }
+        catch (Exception ex)
+        {
+            TShock.Log.ConsoleError($"[TerrariaMissionBridge] Error en /discord: {ex}");
+            args.Player?.SendErrorMessage("Ocurrió un error vinculando tu cuenta.");
+        }
+    }
+
+    private async System.Threading.Tasks.Task DiscordCommandAsync(CommandArgs args)
     {
         var player = args.Player;
 
@@ -545,30 +554,60 @@ private IEnumerable<MissionGroup> LoadMissionGroups()
 
         if (args.Parameters.Count < 1)
         {
-            player.SendErrorMessage("Uso: /discord <idDiscord>");
+            player.SendErrorMessage("Uso: /discord <codigo>");
             return;
         }
 
-        var discordId = args.Parameters[0].Trim();
+        var code = args.Parameters[0].Trim().ToUpperInvariant();
 
-        if (!IsValidDiscordId(discordId))
+        if (!IsValidLinkCode(code))
         {
-            player.SendErrorMessage("ID de Discord inválida. Debe ser numérica y tener entre 17 y 20 dígitos.");
+            player.SendErrorMessage("Código inválido. Genera uno desde Discord con linkterraria.");
+            return;
+        }
+
+        BridgeProfile? profile = null;
+
+        lock (_sync)
+        {
+            _profiles.TryGetValue(_config.DefaultProfile, out profile);
+        }
+
+        if (profile == null)
+        {
+            player.SendErrorMessage($"No existe el perfil por defecto '{_config.DefaultProfile}' en profiles.txt.");
+            return;
+        }
+
+        player.SendInfoMessage("Verificando código con Discord...");
+
+        var response = await SendLinkVerifyAsync(profile, code);
+
+        if (!response.Ok || string.IsNullOrWhiteSpace(response.UserId))
+        {
+            player.SendErrorMessage(GetFriendlyBridgeError(response));
             return;
         }
 
         lock (_sync)
         {
-            _players[player.Name] = discordId;
+            _players[player.Name] = response.UserId;
             SavePlayers();
         }
 
-        player.SendSuccessMessage($"Tu personaje quedó vinculado al Discord ID: {discordId}");
+        player.SendSuccessMessage("Tu personaje quedó vinculado correctamente con tu cuenta de Discord.");
     }
 
-    private bool IsValidDiscordId(string value)
+    private bool IsValidLinkCode(string value)
     {
-        return value.Length is >= 17 and <= 20 && value.All(char.IsDigit);
+        var text = (value ?? "").Trim();
+
+        if (text.Length < 4 || text.Length > 20)
+        {
+            return false;
+        }
+
+        return text.All(char.IsLetterOrDigit);
     }
 
     private void SavePlayers()
@@ -576,7 +615,7 @@ private IEnumerable<MissionGroup> LoadMissionGroups()
         var lines = new List<string>
         {
             "# playerName | discordUserId",
-            "# Este archivo también se puede llenar con /discord <idDiscord>.",
+            "# Este archivo se llena usando /discord <codigo>.",
             ""
         };
 
@@ -625,7 +664,7 @@ private IEnumerable<MissionGroup> LoadMissionGroups()
 
         if (string.IsNullOrWhiteSpace(discordUserId))
         {
-            player.SendErrorMessage("Primero vincula tu Discord con: /discord <idDiscord>");
+            player.SendErrorMessage("Primero vincula tu Discord con: /discord <codigo>");
             return;
         }
 
@@ -643,8 +682,7 @@ private IEnumerable<MissionGroup> LoadMissionGroups()
 
         player.SendErrorMessage("No tienes ningún item o conjunto de items listo para entregar.");
     }
-
-    private bool TryFindSimpleMission(
+private bool TryFindSimpleMission(
         TSPlayer player,
         out MissionEntry mission,
         out BridgeProfile profile)
@@ -874,7 +912,8 @@ private IEnumerable<MissionGroup> LoadMissionGroups()
             player.SendInfoMessage(completeResponse.RewardText);
         }
     }
-private bool TryBuildGroupDeliveryPlan(
+
+    private bool TryBuildGroupDeliveryPlan(
         TSPlayer player,
         MissionGroup group,
         List<GroupRequirement> requirements,
@@ -990,8 +1029,7 @@ private bool TryBuildGroupDeliveryPlan(
 
         return remaining <= 0;
     }
-
-    private Item? GetHeldItem(TSPlayer player)
+private Item? GetHeldItem(TSPlayer player)
     {
         var selectedSlot = player.TPlayer.selectedItem;
 
@@ -1207,6 +1245,71 @@ private bool TryBuildGroupDeliveryPlan(
         );
     }
 
+    private async System.Threading.Tasks.Task<BridgeResponse> SendLinkVerifyAsync(
+        BridgeProfile profile,
+        string code)
+    {
+        var endpoint = GetLinkVerifyEndpoint(profile.Endpoint);
+
+        var payload = new LinkVerifyRequest
+        {
+            GuildId = profile.GuildId,
+            Code = code
+        };
+
+        var json = JsonSerializer.Serialize(payload);
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", profile.Secret);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        try
+        {
+            using var response = await Http.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            BridgeResponse? parsed = null;
+
+            try
+            {
+                parsed = JsonSerializer.Deserialize<BridgeResponse>(content, JsonOptions);
+            }
+            catch
+            {
+                // Si el bot responde algo no JSON, abajo devolvemos error genérico.
+            }
+
+            if (parsed != null)
+            {
+                parsed.StatusCode = (int)response.StatusCode;
+
+                if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(parsed.Error))
+                {
+                    parsed.Error = response.StatusCode.ToString();
+                }
+
+                return parsed;
+            }
+
+            return new BridgeResponse
+            {
+                Ok = false,
+                StatusCode = (int)response.StatusCode,
+                Error = response.StatusCode.ToString(),
+                Message = string.IsNullOrWhiteSpace(content) ? "Respuesta vacía del bot." : content
+            };
+        }
+        catch (Exception ex)
+        {
+            return new BridgeResponse
+            {
+                Ok = false,
+                Error = "REQUEST_FAILED",
+                Message = ex.Message
+            };
+        }
+    }
+
     private async System.Threading.Tasks.Task<BridgeResponse> SendMissionPrepareAsync(
         BridgeProfile profile,
         string userId,
@@ -1248,6 +1351,23 @@ private bool TryBuildGroupDeliveryPlan(
         }
 
         return endpoint.TrimEnd('/') + "/terraria/mission-prepare";
+    }
+
+    private string GetLinkVerifyEndpoint(string completeEndpoint)
+    {
+        var endpoint = (completeEndpoint ?? "").Trim();
+
+        if (endpoint.EndsWith("/terraria/mission-complete", StringComparison.OrdinalIgnoreCase))
+        {
+            return endpoint[..^"/terraria/mission-complete".Length] + "/terraria/link-verify";
+        }
+
+        if (endpoint.EndsWith("/mission-complete", StringComparison.OrdinalIgnoreCase))
+        {
+            return endpoint[..^"/mission-complete".Length] + "/link-verify";
+        }
+
+        return endpoint.TrimEnd('/') + "/terraria/link-verify";
     }
 
     private async System.Threading.Tasks.Task<BridgeResponse> SendBridgeRequestAsync(
@@ -1329,8 +1449,13 @@ private bool TryBuildGroupDeliveryPlan(
             "MISSING_GUILD_ID" => "Falta guildId. Revisa profiles.txt.",
             "MISSING_USER_ID" => "Falta userId. Revisa tu vinculación con /discord.",
             "MISSING_MISSION_ID" => "Falta missionId. Revisa missions.txt.",
+            "MISSING_CODE" => "Falta el código de vinculación.",
+            "CODE_NOT_FOUND" => "Ese código no existe. Genera uno nuevo desde Discord con linkterraria.",
+            "CODE_ALREADY_USED" => "Ese código ya fue usado. Genera uno nuevo desde Discord.",
+            "CODE_EXPIRED" => "Ese código ya expiró. Genera uno nuevo desde Discord.",
+            "LINK_SYSTEM_NOT_AVAILABLE" => "El sistema de vinculación no está disponible en el bot.",
             "REQUEST_FAILED" => $"No se pudo conectar con el bot: {response.Message}",
-            _ => response.Message ?? $"El bot rechazó la misión. Error: {error}"
+            _ => response.Message ?? $"El bot rechazó la solicitud. Error: {error}"
         };
     }
 
@@ -1496,6 +1621,15 @@ private bool TryBuildGroupDeliveryPlan(
         public string Name { get; set; } = "";
     }
 
+    private sealed class LinkVerifyRequest
+    {
+        [JsonPropertyName("guildId")]
+        public string GuildId { get; set; } = "";
+
+        [JsonPropertyName("code")]
+        public string Code { get; set; } = "";
+    }
+
     private sealed class BridgeRequest
     {
         [JsonPropertyName("guildId")]
@@ -1518,6 +1652,9 @@ private bool TryBuildGroupDeliveryPlan(
 
         [JsonPropertyName("message")]
         public string? Message { get; set; }
+
+        [JsonPropertyName("userId")]
+        public string? UserId { get; set; }
 
         [JsonPropertyName("missionTitle")]
         public string? MissionTitle { get; set; }
