@@ -1,0 +1,73 @@
+# TerrariaMissionBridge messages
+# Soporta colores de TShock:
+# [c/57f287:Texto verde]
+# [c/ed4245:Texto rojo]
+# [c/f5a9b8:Texto rosa]
+#
+# Placeholders disponibles:
+# {player}
+# {code}
+# {missionId}
+# {missionTitle}
+# {itemName}
+# {itemId}
+# {amount}
+# {label}
+# {rewardText}
+# {status}
+# {profile}
+# {count}
+# {consume}
+# {error}
+# {message}
+
+system_disabled = [c/ed4245:⛔ El sistema de entregas está desactivado temporalmente.]
+
+discord_usage = [c/ffcc00:Uso:] [c/ffffff:/discord <codigo>]
+discord_invalid_code = [c/ed4245:❌ Código inválido.] [c/ffffff:Genera uno desde Discord con linkterraria.]
+discord_verifying = [c/57b8ff:🔎 Verificando código con Discord...]
+discord_link_success = [c/57f287:✅ Tu personaje quedó vinculado correctamente con tu cuenta de Discord.]
+
+deliver_need_link = [c/ffcc00:🔗 Primero vincula tu Discord con:] [c/ffffff:/discord <codigo>]
+deliver_no_ready_mission = [c/ed4245:❌ No tienes ningún item o conjunto de items listo para entregar.]
+deliver_validating = [c/57b8ff:🔎 Validando misión] [c/ffffff:{missionId}] [c/57b8ff:con el bot...]
+deliver_validating_group = [c/57b8ff:🔎 Validando misión múltiple] [c/ffffff:{missionId}] [c/57b8ff:con el bot...]
+deliver_completing = [c/f5a9b8:📨 Completando misión] [c/ffffff:{missionId}] [c/f5a9b8:con el bot...]
+deliver_completing_group = [c/f5a9b8:📨 Completando misión múltiple] [c/ffffff:{missionId}] [c/f5a9b8:con el bot...]
+deliver_success = [c/57f287:✅ Misión completada:] [c/ffffff:{missionTitle}]
+deliver_items_title = [c/f5a9b8:📦 Items entregados:]
+deliver_item_line = [c/ffffff:- {amount}x {label}]
+
+item_consumed = [c/f5a9b8:📦 Se consumieron] [c/ffffff:{amount}x {itemName}].
+item_missing_hand = [c/ed4245:❌ Ya no tienes el item requerido en la mano.]
+item_no_valid_hand = [c/ed4245:❌ No tienes ningún item válido en la mano.]
+item_info = [c/57b8ff:Item en mano:] [c/ffffff:{itemName}] [c/57b8ff:| ID:] [c/ffffff:{itemId}] [c/57b8ff:| Cantidad:] [c/ffffff:{amount}]
+
+reload_success = [c/57f287:✅ TerrariaMissionBridge recargado correctamente.]
+reload_error = [c/ed4245:❌ No se pudo recargar el plugin. Revisa consola.]
+
+status_enabled = [c/57f287:Activado]
+status_disabled = [c/ed4245:Desactivado]
+status_line_system = [c/57b8ff:Sistema de entregas:] {status}
+status_line_profile = [c/57b8ff:Perfil por defecto:] [c/ffffff:{profile}]
+status_line_consume = [c/57b8ff:Consumir items al completar:] [c/ffffff:{consume}]
+status_line_simple = [c/57b8ff:Misiones simples:] [c/ffffff:{count}]
+status_line_group = [c/57b8ff:Misiones múltiples:] [c/ffffff:{count}]
+
+admin_enabled = [c/57f287:✅ Sistema de entregas activado.]
+admin_disabled = [c/ffcc00:⚠️ Sistema de entregas desactivado temporalmente.]
+
+error_mission_not_found = [c/ed4245:❌ Esa misión no existe en el bot.]
+error_mission_inactive = [c/ed4245:❌ Esa misión está inactiva en el bot.]
+error_already_completed = [c/ffcc00:⚠️ Ya completaste esa misión. No se consumió el item.]
+error_unauthorized = [c/ed4245:❌ El plugin no está autorizado. Revisa secret en profiles.txt y TERRARIA_BRIDGE_SECRET en el bot.]
+error_missing_guild = [c/ed4245:❌ Falta guildId. Revisa profiles.txt.]
+error_missing_user = [c/ed4245:❌ Falta userId. Revisa tu vinculación con /discord.]
+error_missing_mission = [c/ed4245:❌ Falta missionId. Revisa missions.txt.]
+error_missing_code = [c/ed4245:❌ Falta el código de vinculación.]
+error_code_not_found = [c/ed4245:❌ Ese código no existe. Genera uno nuevo desde Discord con linkterraria.]
+error_code_used = [c/ffcc00:⚠️ Ese código ya fue usado. Genera uno nuevo desde Discord.]
+error_code_expired = [c/ffcc00:⚠️ Ese código ya expiró. Genera uno nuevo desde Discord.]
+error_link_system = [c/ed4245:❌ El sistema de vinculación no está disponible en el bot.]
+error_request_failed = [c/ed4245:❌ No se pudo conectar con el bot:] [c/ffffff:{message}]
+error_unknown = [c/ed4245:❌ El bot rechazó la solicitud.] [c/ffffff:Error: {error}]
