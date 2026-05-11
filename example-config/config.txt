@@ -1,4 +1,5 @@
-# Config general del plugin
+﻿# Config general del plugin
 
+Enabled = true
 DefaultProfile = main
 ConsumeItemOnSuccess = true

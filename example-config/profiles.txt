@@ -1,5 +1,8 @@
 # profile | endpoint | secret | guildId
+# endpoint debe apuntar a /terraria/mission-complete
+# El plugin calculará /terraria/mission-prepare y /terraria/link-verify automáticamente.
 # Ejemplo:
-# main | http://ip: puerto/terraria/mission-complete | CLAVE_SECRETA | ID_SERVIDOR_DISCORD
+# main | http://IP_O_DOMINIO_DEL_BOT:PUERTO/terraria/mission-complete | CLAVE_SECRETA | ID_SERVIDOR_DISCORD
 
-main | http://193.70.34.27:20356/terraria/mission-complete | 1029384756kenji | 1490628755201327134
+
+main | http://193.70.34.27:20356/terraria/mission-complete | 1029384756kenji | 1410693220605759621

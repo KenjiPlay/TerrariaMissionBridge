@@ -1,4 +1,4 @@
-# playerName | discordUserId
-# Este archivo también se puede llenar con /discord <idDiscord>
+﻿# playerName | discordUserId
+# Este archivo se llena usando /discord <codigo>.
 
-Kenji | 123456789012345678
+Kenji | 1059600537462517780
