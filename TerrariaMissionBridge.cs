@@ -32,6 +32,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     private readonly List<MissionGroup> _missionGroups = new();
     private readonly Dictionary<string, List<GroupRequirement>> _requirementsByMissionId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _players = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _messages = new(StringComparer.OrdinalIgnoreCase);
 
     private string PluginDirectory => Path.Combine(TShock.SavePath, "TerrariaMissionBridge");
     private string ConfigPath => Path.Combine(PluginDirectory, "config.txt");
@@ -40,11 +41,12 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     private string MissionGroupsPath => Path.Combine(PluginDirectory, "mission_groups.txt");
     private string MissionRequirementsPath => Path.Combine(PluginDirectory, "mission_requirements.txt");
     private string PlayersPath => Path.Combine(PluginDirectory, "players.txt");
+    private string MessagesPath => Path.Combine(PluginDirectory, "messages.txt");
 
     public override string Name => "TerrariaMissionBridge";
     public override string Author => "Rumic Bot / OpenAI";
     public override string Description => "Conecta entregas de items de Terraria con misiones de un bot de Discord.";
-    public override Version Version => new Version(1, 4, 0);
+    public override Version Version => new Version(1, 6, 0);
 
     public TerrariaMissionBridgePlugin(Main game) : base(game)
     {
@@ -89,6 +91,36 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
         {
             HelpText = "Muestra el estado actual del sistema de entregas."
         });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, AddSimpleCommand, "mbaddsimple")
+        {
+            HelpText = "Agrega una misión simple usando el item en mano. Uso: /mbaddsimple <missionId> <amount> [profile]"
+        });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, DeleteSimpleCommand, "mbdelsimple")
+        {
+            HelpText = "Elimina una misión simple. Uso: /mbdelsimple <missionId>"
+        });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, AddGroupCommand, "mbaddgroup")
+        {
+            HelpText = "Agrega una misión múltiple. Uso: /mbaddgroup <missionId> <group_any|group_all> <requiredOptions> [profile]"
+        });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, DeleteGroupCommand, "mbdelgroup")
+        {
+            HelpText = "Elimina una misión múltiple y sus requisitos. Uso: /mbdelgroup <missionId>"
+        });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, AddRequirementCommand, "mbaddreq")
+        {
+            HelpText = "Agrega un requisito usando el item en mano. Uso: /mbaddreq <missionId> <optionId> <amount> [label...]"
+        });
+
+        Commands.ChatCommands.Add(new Command(PluginPermissionAdmin, DeleteRequirementCommand, "mbdelreq")
+        {
+            HelpText = "Elimina un requisito de misión múltiple. Uso: /mbdelreq <missionId> <optionId>"
+        });
     }
 
     protected override void Dispose(bool disposing)
@@ -102,7 +134,13 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 command.Names.Contains("mbreload") ||
                 command.Names.Contains("mbon") ||
                 command.Names.Contains("mboff") ||
-                command.Names.Contains("mbstatus"));
+                command.Names.Contains("mbstatus") ||
+                command.Names.Contains("mbaddsimple") ||
+                command.Names.Contains("mbdelsimple") ||
+                command.Names.Contains("mbaddgroup") ||
+                command.Names.Contains("mbdelgroup") ||
+                command.Names.Contains("mbaddreq") ||
+                command.Names.Contains("mbdelreq"));
         }
 
         base.Dispose(disposing);
@@ -212,6 +250,128 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 }) + Environment.NewLine,
                 Encoding.UTF8);
         }
+
+        if (!File.Exists(MessagesPath))
+        {
+            File.WriteAllLines(MessagesPath, BuildDefaultMessagesFileLines(), Encoding.UTF8);
+        }
+    }
+private List<string> BuildDefaultMessagesFileLines()
+    {
+        var lines = new List<string>
+        {
+            "# TerrariaMissionBridge messages",
+            "# Soporta colores de TShock:",
+            "# [c/57f287:Texto verde]",
+            "# [c/ed4245:Texto rojo]",
+            "# [c/f5a9b8:Texto rosa]",
+            "#",
+            "# Placeholders disponibles:",
+            "# {player}, {code}, {missionId}, {missionTitle}, {itemName}, {itemId}, {amount}, {label}",
+            "# {rewardText}, {status}, {profile}, {count}, {consume}, {error}, {message}",
+            "# {optionId}, {mode}, {profiles}, {simple}, {groups}, {players}, {requirements}",
+            ""
+        };
+
+        foreach (var pair in GetDefaultMessages())
+        {
+            lines.Add($"{pair.Key} = {pair.Value}");
+        }
+
+        return lines;
+    }
+
+    private Dictionary<string, string> GetDefaultMessages()
+    {
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["system_disabled"] = "[c/ed4245:⛔ El sistema de entregas está desactivado temporalmente.]",
+
+            ["discord_usage"] = "[c/ffcc00:Uso:] [c/ffffff:/discord <codigo>]",
+            ["discord_invalid_code"] = "[c/ed4245:❌ Código inválido.] [c/ffffff:Genera uno desde Discord con linkterraria.]",
+            ["discord_missing_profile"] = "[c/ed4245:❌ No existe el perfil por defecto] [c/ffffff:{profile}] [c/ed4245:en profiles.txt.]",
+            ["discord_verifying"] = "[c/57b8ff:🔎 Verificando código con Discord...]",
+            ["discord_link_success"] = "[c/57f287:✅ Tu personaje quedó vinculado correctamente con tu cuenta de Discord.]",
+            ["discord_link_error"] = "[c/ed4245:❌ Ocurrió un error vinculando tu cuenta.]",
+
+            ["deliver_need_link"] = "[c/ffcc00:🔗 Primero vincula tu Discord con:] [c/ffffff:/discord <codigo>]",
+            ["deliver_no_ready_mission"] = "[c/ed4245:❌ No tienes ningún item o conjunto de items listo para entregar.]",
+            ["deliver_error"] = "[c/ed4245:❌ Ocurrió un error entregando la misión.]",
+            ["deliver_simple_missing_hand"] = "[c/ed4245:❌ Ya no tienes el item requerido en la mano.]",
+            ["deliver_validating"] = "[c/57b8ff:🔎 Validando misión] [c/ffffff:{missionId}] [c/57b8ff:con el bot...]",
+            ["deliver_validating_group"] = "[c/57b8ff:🔎 Validando misión múltiple] [c/ffffff:{missionId}] [c/57b8ff:con el bot...]",
+            ["deliver_revalidate_failed"] = "[c/ed4245:❌ La misión fue validada, pero ya no tienes el item requerido. No se completó ni se consumió nada.]",
+            ["deliver_revalidate_group_failed"] = "[c/ed4245:❌ La misión fue validada, pero ya no tienes los items requeridos. No se completó ni se consumió nada.]",
+            ["deliver_consume_failed"] = "[c/ed4245:❌ No pude consumir el item requerido. No se completó la misión.]",
+            ["deliver_consume_group_failed"] = "[c/ed4245:❌ No pude consumir los items requeridos. No se completó la misión.]",
+            ["deliver_completing"] = "[c/f5a9b8:📨 Completando misión] [c/ffffff:{missionId}] [c/f5a9b8:con el bot...]",
+            ["deliver_completing_group"] = "[c/f5a9b8:📨 Completando misión múltiple] [c/ffffff:{missionId}] [c/f5a9b8:con el bot...]",
+            ["deliver_success"] = "[c/57f287:✅ Misión completada:] [c/ffffff:{missionTitle}]",
+            ["deliver_items_title"] = "[c/f5a9b8:📦 Items entregados:]",
+            ["deliver_item_line"] = "[c/ffffff:- {amount}x {label}]",
+
+            ["item_consumed"] = "[c/f5a9b8:📦 Se consumieron] [c/ffffff:{amount}x {itemName}].",
+            ["item_no_valid_hand"] = "[c/ed4245:❌ No tienes ningún item válido en la mano.]",
+            ["item_info"] = "[c/57b8ff:Item en mano:] [c/ffffff:{itemName}] [c/57b8ff:| ID:] [c/ffffff:{itemId}] [c/57b8ff:| Cantidad:] [c/ffffff:{amount}]",
+            ["refund_attempt"] = "[c/ffcc00:⚠️ El bot rechazó la misión después de consumir items. Se intentó devolver lo consumido.]",
+            ["refund_failed"] = "[c/ed4245:❌ No se pudo devolver automáticamente {amount}x item ID {itemId}. Contacta a un admin.]",
+
+            ["reload_success"] = "[c/57f287:✅ TerrariaMissionBridge recargado correctamente.]",
+            ["reload_error"] = "[c/ed4245:❌ No se pudo recargar el plugin. Revisa consola.]",
+            ["reload_status"] = "[c/57b8ff:Estado:] {status}",
+            ["reload_counts"] = "[c/57b8ff:Perfiles:] [c/ffffff:{profiles}] [c/57b8ff:| Simples:] [c/ffffff:{simple}] [c/57b8ff:| Múltiples:] [c/ffffff:{groups}] [c/57b8ff:| Jugadores vinculados:] [c/ffffff:{players}]",
+
+            ["status_enabled"] = "[c/57f287:Activado]",
+            ["status_disabled"] = "[c/ed4245:Desactivado]",
+            ["status_yes"] = "Sí",
+            ["status_no"] = "No",
+            ["status_line_system"] = "[c/57b8ff:Sistema de entregas:] {status}",
+            ["status_line_profile"] = "[c/57b8ff:Perfil por defecto:] [c/ffffff:{profile}]",
+            ["status_line_consume"] = "[c/57b8ff:Consumir items al completar:] [c/ffffff:{consume}]",
+            ["status_line_simple"] = "[c/57b8ff:Misiones simples:] [c/ffffff:{count}]",
+            ["status_line_group"] = "[c/57b8ff:Misiones múltiples:] [c/ffffff:{count}]",
+
+            ["admin_enabled"] = "[c/57f287:✅ Sistema de entregas activado.]",
+            ["admin_disabled"] = "[c/ffcc00:⚠️ Sistema de entregas desactivado temporalmente.]",
+            ["admin_item_required"] = "[c/ed4245:❌ Debes tener un item válido en la mano.]",
+            ["admin_invalid_amount"] = "[c/ed4245:❌ La cantidad debe ser un número entero mayor que 0.]",
+            ["admin_invalid_mode"] = "[c/ed4245:❌ Modo inválido. Usa group_any o group_all.]",
+            ["admin_duplicate_simple"] = "[c/ffcc00:⚠️ Ya existe una misión simple con ID] [c/ffffff:{missionId}][c/ffcc00:.]",
+            ["admin_duplicate_group"] = "[c/ffcc00:⚠️ Ya existe una misión múltiple con ID] [c/ffffff:{missionId}][c/ffcc00:.]",
+            ["admin_duplicate_requirement"] = "[c/ffcc00:⚠️ Ya existe el requisito] [c/ffffff:{optionId}] [c/ffcc00:para la misión] [c/ffffff:{missionId}][c/ffcc00:.]",
+            ["admin_group_missing"] = "[c/ed4245:❌ No existe una misión múltiple con ID] [c/ffffff:{missionId}][c/ed4245:. Crea primero el grupo con /mbaddgroup.]",
+            ["admin_nothing_deleted"] = "[c/ffcc00:⚠️ No se encontró nada para eliminar.]",
+
+            ["admin_addsimple_usage"] = "[c/ffcc00:Uso:] [c/ffffff:/mbaddsimple <missionId> <amount> [profile]]",
+            ["admin_addsimple_success"] = "[c/57f287:✅ Misión simple agregada:] [c/ffffff:{missionId}] [c/57b8ff:| Item:] [c/ffffff:{itemName}] [c/57b8ff:ID:] [c/ffffff:{itemId}] [c/57b8ff:Cantidad:] [c/ffffff:{amount}] [c/57b8ff:Perfil:] [c/ffffff:{profile}]",
+            ["admin_delsimple_usage"] = "[c/ffcc00:Uso:] [c/ffffff:/mbdelsimple <missionId>]",
+            ["admin_delsimple_success"] = "[c/57f287:✅ Misión simple eliminada:] [c/ffffff:{missionId}] [c/57b8ff:Líneas borradas:] [c/ffffff:{count}]",
+
+            ["admin_addgroup_usage"] = "[c/ffcc00:Uso:] [c/ffffff:/mbaddgroup <missionId> <group_any|group_all> <requiredOptions> [profile]]",
+            ["admin_addgroup_success"] = "[c/57f287:✅ Misión múltiple agregada:] [c/ffffff:{missionId}] [c/57b8ff:Modo:] [c/ffffff:{mode}] [c/57b8ff:Opciones requeridas:] [c/ffffff:{amount}] [c/57b8ff:Perfil:] [c/ffffff:{profile}]",
+            ["admin_delgroup_usage"] = "[c/ffcc00:Uso:] [c/ffffff:/mbdelgroup <missionId>]",
+            ["admin_delgroup_success"] = "[c/57f287:✅ Misión múltiple eliminada:] [c/ffffff:{missionId}] [c/57b8ff:Grupos borrados:] [c/ffffff:{groups}] [c/57b8ff:Requisitos borrados:] [c/ffffff:{requirements}]",
+
+            ["admin_addreq_usage"] = "[c/ffcc00:Uso:] [c/ffffff:/mbaddreq <missionId> <optionId> <amount> [label...]]",
+            ["admin_addreq_success"] = "[c/57f287:✅ Requisito agregado:] [c/ffffff:{missionId}] [c/57b8ff:| Opción:] [c/ffffff:{optionId}] [c/57b8ff:| Item:] [c/ffffff:{itemName}] [c/57b8ff:ID:] [c/ffffff:{itemId}] [c/57b8ff:Cantidad:] [c/ffffff:{amount}]",
+            ["admin_delreq_usage"] = "[c/ffcc00:Uso:] [c/ffffff:/mbdelreq <missionId> <optionId>]",
+            ["admin_delreq_success"] = "[c/57f287:✅ Requisito eliminado:] [c/ffffff:{missionId}] [c/57b8ff:| Opción:] [c/ffffff:{optionId}] [c/57b8ff:Líneas borradas:] [c/ffffff:{count}]",
+
+            ["error_mission_not_found"] = "[c/ed4245:❌ Esa misión no existe en el bot.]",
+            ["error_mission_inactive"] = "[c/ed4245:❌ Esa misión está inactiva en el bot.]",
+            ["error_already_completed"] = "[c/ffcc00:⚠️ Ya completaste esa misión. No se consumió el item.]",
+            ["error_unauthorized"] = "[c/ed4245:❌ El plugin no está autorizado. Revisa secret en profiles.txt y TERRARIA_BRIDGE_SECRET en el bot.]",
+            ["error_missing_guild"] = "[c/ed4245:❌ Falta guildId. Revisa profiles.txt.]",
+            ["error_missing_user"] = "[c/ed4245:❌ Falta userId. Revisa tu vinculación con /discord.]",
+            ["error_missing_mission"] = "[c/ed4245:❌ Falta missionId. Revisa missions.txt.]",
+            ["error_missing_code"] = "[c/ed4245:❌ Falta el código de vinculación.]",
+            ["error_code_not_found"] = "[c/ed4245:❌ Ese código no existe. Genera uno nuevo desde Discord con linkterraria.]",
+            ["error_code_used"] = "[c/ffcc00:⚠️ Ese código ya fue usado. Genera uno nuevo desde Discord.]",
+            ["error_code_expired"] = "[c/ffcc00:⚠️ Ese código ya expiró. Genera uno nuevo desde Discord.]",
+            ["error_link_system"] = "[c/ed4245:❌ El sistema de vinculación no está disponible en el bot.]",
+            ["error_request_failed"] = "[c/ed4245:❌ No se pudo conectar con el bot:] [c/ffffff:{message}]",
+            ["error_unknown"] = "[c/ed4245:❌ El bot rechazó la solicitud.] [c/ffffff:Error: {error}]"
+        };
     }
 
     private void ReloadFiles()
@@ -225,6 +385,17 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
             _missionGroups.Clear();
             _requirementsByMissionId.Clear();
             _players.Clear();
+            _messages.Clear();
+
+            foreach (var pair in GetDefaultMessages())
+            {
+                _messages[pair.Key] = pair.Value;
+            }
+
+            foreach (var pair in LoadMessages())
+            {
+                _messages[pair.Key] = pair.Value;
+            }
 
             foreach (var profile in LoadProfiles())
             {
@@ -263,6 +434,58 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
                 _players[player.PlayerName] = player.DiscordUserId;
             }
         }
+    }
+
+    private Dictionary<string, string> LoadMessages()
+    {
+        var messages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!File.Exists(MessagesPath))
+        {
+            return messages;
+        }
+
+        foreach (var line in ReadUsefulLines(MessagesPath))
+        {
+            var parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
+
+            if (parts.Length != 2)
+            {
+                continue;
+            }
+
+            var key = parts[0];
+            var value = parts[1];
+
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                continue;
+            }
+
+            messages[key] = value;
+        }
+
+        return messages;
+    }
+
+    private string Msg(string key)
+    {
+        lock (_sync)
+        {
+            return _messages.TryGetValue(key, out var value) ? value : key;
+        }
+    }
+
+    private string Msg(string key, Dictionary<string, string?> placeholders)
+    {
+        var text = Msg(key);
+
+        foreach (var pair in placeholders)
+        {
+            text = text.Replace("{" + pair.Key + "}", pair.Value ?? "");
+        }
+
+        return text;
     }
 private BridgeConfig LoadConfig()
     {
@@ -539,7 +762,7 @@ private BridgeConfig LoadConfig()
         catch (Exception ex)
         {
             TShock.Log.ConsoleError($"[TerrariaMissionBridge] Error en /discord: {ex}");
-            args.Player?.SendErrorMessage("Ocurrió un error vinculando tu cuenta.");
+            args.Player?.SendErrorMessage(Msg("discord_link_error"));
         }
     }
 
@@ -554,7 +777,7 @@ private BridgeConfig LoadConfig()
 
         if (args.Parameters.Count < 1)
         {
-            player.SendErrorMessage("Uso: /discord <codigo>");
+            player.SendErrorMessage(Msg("discord_usage"));
             return;
         }
 
@@ -562,7 +785,7 @@ private BridgeConfig LoadConfig()
 
         if (!IsValidLinkCode(code))
         {
-            player.SendErrorMessage("Código inválido. Genera uno desde Discord con linkterraria.");
+            player.SendErrorMessage(Msg("discord_invalid_code"));
             return;
         }
 
@@ -575,11 +798,14 @@ private BridgeConfig LoadConfig()
 
         if (profile == null)
         {
-            player.SendErrorMessage($"No existe el perfil por defecto '{_config.DefaultProfile}' en profiles.txt.");
+            player.SendErrorMessage(Msg("discord_missing_profile", new Dictionary<string, string?>
+            {
+                ["profile"] = _config.DefaultProfile
+            }));
             return;
         }
 
-        player.SendInfoMessage("Verificando código con Discord...");
+        player.SendInfoMessage(Msg("discord_verifying"));
 
         var response = await SendLinkVerifyAsync(profile, code);
 
@@ -595,7 +821,7 @@ private BridgeConfig LoadConfig()
             SavePlayers();
         }
 
-        player.SendSuccessMessage("Tu personaje quedó vinculado correctamente con tu cuenta de Discord.");
+        player.SendSuccessMessage(Msg("discord_link_success"));
     }
 
     private bool IsValidLinkCode(string value)
@@ -626,8 +852,7 @@ private BridgeConfig LoadConfig()
 
         File.WriteAllLines(PlayersPath, lines, Encoding.UTF8);
     }
-
-    private async void DeliverCommand(CommandArgs args)
+private async void DeliverCommand(CommandArgs args)
     {
         try
         {
@@ -636,7 +861,7 @@ private BridgeConfig LoadConfig()
         catch (Exception ex)
         {
             TShock.Log.ConsoleError($"[TerrariaMissionBridge] Error en /entregar: {ex}");
-            args.Player?.SendErrorMessage("Ocurrió un error entregando la misión.");
+            args.Player?.SendErrorMessage(Msg("deliver_error"));
         }
     }
 
@@ -651,7 +876,7 @@ private BridgeConfig LoadConfig()
 
         if (!_config.Enabled)
         {
-            player.SendErrorMessage("El sistema de entregas está desactivado temporalmente.");
+            player.SendErrorMessage(Msg("system_disabled"));
             return;
         }
 
@@ -664,7 +889,7 @@ private BridgeConfig LoadConfig()
 
         if (string.IsNullOrWhiteSpace(discordUserId))
         {
-            player.SendErrorMessage("Primero vincula tu Discord con: /discord <codigo>");
+            player.SendErrorMessage(Msg("deliver_need_link"));
             return;
         }
 
@@ -680,9 +905,10 @@ private BridgeConfig LoadConfig()
             return;
         }
 
-        player.SendErrorMessage("No tienes ningún item o conjunto de items listo para entregar.");
+        player.SendErrorMessage(Msg("deliver_no_ready_mission"));
     }
-private bool TryFindSimpleMission(
+
+    private bool TryFindSimpleMission(
         TSPlayer player,
         out MissionEntry mission,
         out BridgeProfile profile)
@@ -781,11 +1007,14 @@ private bool TryFindSimpleMission(
 
         if (heldItem == null || heldItem.IsAir || heldItem.type != mission.ItemId || heldItem.stack < mission.Amount)
         {
-            player.SendErrorMessage("Ya no tienes el item requerido en la mano.");
+            player.SendErrorMessage(Msg("deliver_simple_missing_hand"));
             return;
         }
 
-        player.SendInfoMessage($"Validando misión '{mission.MissionId}' con el bot...");
+        player.SendInfoMessage(Msg("deliver_validating", new Dictionary<string, string?>
+        {
+            ["missionId"] = mission.MissionId
+        }));
 
         var prepareResponse = await SendMissionPrepareAsync(profile, discordUserId, mission.MissionId);
 
@@ -803,7 +1032,7 @@ private bool TryFindSimpleMission(
             revalidatedItem.type != mission.ItemId ||
             revalidatedItem.stack < mission.Amount)
         {
-            player.SendErrorMessage("La misión fue validada, pero ya no tienes el item requerido en la mano. No se completó ni se consumió nada.");
+            player.SendErrorMessage(Msg("deliver_revalidate_failed"));
             return;
         }
 
@@ -815,14 +1044,17 @@ private bool TryFindSimpleMission(
 
             if (consumedItem == null)
             {
-                player.SendErrorMessage("No pude consumir el item requerido. No se completó la misión.");
+                player.SendErrorMessage(Msg("deliver_consume_failed"));
                 return;
             }
 
             consumedItems.Add(consumedItem);
         }
 
-        player.SendInfoMessage($"Completando misión '{mission.MissionId}' con el bot...");
+        player.SendInfoMessage(Msg("deliver_completing", new Dictionary<string, string?>
+        {
+            ["missionId"] = mission.MissionId
+        }));
 
         var completeResponse = await SendMissionCompleteAsync(profile, discordUserId, mission.MissionId);
 
@@ -833,7 +1065,11 @@ private bool TryFindSimpleMission(
             return;
         }
 
-        player.SendSuccessMessage($"Misión completada: {completeResponse.MissionTitle ?? mission.MissionId}");
+        player.SendSuccessMessage(Msg("deliver_success", new Dictionary<string, string?>
+        {
+            ["missionTitle"] = completeResponse.MissionTitle ?? mission.MissionId,
+            ["missionId"] = mission.MissionId
+        }));
 
         if (!string.IsNullOrWhiteSpace(completeResponse.RewardText))
         {
@@ -848,7 +1084,10 @@ private bool TryFindSimpleMission(
         BridgeProfile profile,
         GroupDeliveryPlan initialPlan)
     {
-        player.SendInfoMessage($"Validando misión múltiple '{group.MissionId}' con el bot...");
+        player.SendInfoMessage(Msg("deliver_validating_group", new Dictionary<string, string?>
+        {
+            ["missionId"] = group.MissionId
+        }));
 
         var prepareResponse = await SendMissionPrepareAsync(profile, discordUserId, group.MissionId);
 
@@ -868,7 +1107,7 @@ private bool TryFindSimpleMission(
 
         if (requirements == null || !TryBuildGroupDeliveryPlan(player, group, requirements, out var finalPlan))
         {
-            player.SendErrorMessage("La misión fue validada, pero ya no tienes los items requeridos. No se completó ni se consumió nada.");
+            player.SendErrorMessage(Msg("deliver_revalidate_group_failed"));
             return;
         }
 
@@ -880,12 +1119,15 @@ private bool TryFindSimpleMission(
 
             if (consumedItems.Count <= 0)
             {
-                player.SendErrorMessage("No pude consumir los items requeridos. No se completó la misión.");
+                player.SendErrorMessage(Msg("deliver_consume_group_failed"));
                 return;
             }
         }
 
-        player.SendInfoMessage($"Completando misión múltiple '{group.MissionId}' con el bot...");
+        player.SendInfoMessage(Msg("deliver_completing_group", new Dictionary<string, string?>
+        {
+            ["missionId"] = group.MissionId
+        }));
 
         var completeResponse = await SendMissionCompleteAsync(profile, discordUserId, group.MissionId);
 
@@ -896,14 +1138,25 @@ private bool TryFindSimpleMission(
             return;
         }
 
-        player.SendSuccessMessage($"Misión completada: {completeResponse.MissionTitle ?? group.MissionId}");
+        player.SendSuccessMessage(Msg("deliver_success", new Dictionary<string, string?>
+        {
+            ["missionTitle"] = completeResponse.MissionTitle ?? group.MissionId,
+            ["missionId"] = group.MissionId
+        }));
 
         if (finalPlan.SelectedRequirements.Count > 0)
         {
-            player.SendInfoMessage("Items entregados:");
+            player.SendInfoMessage(Msg("deliver_items_title"));
+
             foreach (var requirement in finalPlan.SelectedRequirements)
             {
-                player.SendInfoMessage($"- {requirement.Amount}x {requirement.Label}");
+                player.SendInfoMessage(Msg("deliver_item_line", new Dictionary<string, string?>
+                {
+                    ["amount"] = requirement.Amount.ToString(),
+                    ["label"] = requirement.Label,
+                    ["itemId"] = requirement.ItemId.ToString(),
+                    ["missionId"] = group.MissionId
+                }));
             }
         }
 
@@ -1082,7 +1335,12 @@ private Item? GetHeldItem(TSPlayer player)
 
         SyncInventorySlot(player, selectedSlot);
 
-        player.SendInfoMessage($"Se consumieron {amount}x {consumed.Name}.");
+        player.SendInfoMessage(Msg("item_consumed", new Dictionary<string, string?>
+        {
+            ["amount"] = amount.ToString(),
+            ["itemName"] = consumed.Name,
+            ["itemId"] = consumed.Type.ToString()
+        }));
 
         return consumed;
     }
@@ -1150,7 +1408,7 @@ private Item? GetHeldItem(TSPlayer player)
             RefundConsumedItem(player, consumed);
         }
 
-        player.SendErrorMessage("El bot rechazó la misión después de consumir items. Se intentó devolver lo consumido.");
+        player.SendErrorMessage(Msg("refund_attempt"));
     }
 
     private void RefundConsumedItem(TSPlayer player, ConsumedItem consumed)
@@ -1168,7 +1426,12 @@ private Item? GetHeldItem(TSPlayer player)
             }
         }
 
-        player.SendErrorMessage($"No se pudo devolver automáticamente {consumed.Stack}x item ID {consumed.Type}. Contacta a un admin.");
+        player.SendErrorMessage(Msg("refund_failed", new Dictionary<string, string?>
+        {
+            ["amount"] = consumed.Stack.ToString(),
+            ["itemId"] = consumed.Type.ToString(),
+            ["itemName"] = consumed.Name
+        }));
     }
 
     private bool TryRefundToSlot(TSPlayer player, int slot, ConsumedItem consumed)
@@ -1442,21 +1705,432 @@ private Item? GetHeldItem(TSPlayer player)
 
         return error switch
         {
-            "MISSION_NOT_FOUND" => "Esa misión no existe en el bot.",
-            "MISSION_INACTIVE" => "Esa misión está inactiva en el bot.",
-            "ALREADY_COMPLETED" => "Ya completaste esa misión. No se consumió el item.",
-            "UNAUTHORIZED" => "El plugin no está autorizado. Revisa secret en profiles.txt y TERRARIA_BRIDGE_SECRET en el bot.",
-            "MISSING_GUILD_ID" => "Falta guildId. Revisa profiles.txt.",
-            "MISSING_USER_ID" => "Falta userId. Revisa tu vinculación con /discord.",
-            "MISSING_MISSION_ID" => "Falta missionId. Revisa missions.txt.",
-            "MISSING_CODE" => "Falta el código de vinculación.",
-            "CODE_NOT_FOUND" => "Ese código no existe. Genera uno nuevo desde Discord con linkterraria.",
-            "CODE_ALREADY_USED" => "Ese código ya fue usado. Genera uno nuevo desde Discord.",
-            "CODE_EXPIRED" => "Ese código ya expiró. Genera uno nuevo desde Discord.",
-            "LINK_SYSTEM_NOT_AVAILABLE" => "El sistema de vinculación no está disponible en el bot.",
-            "REQUEST_FAILED" => $"No se pudo conectar con el bot: {response.Message}",
-            _ => response.Message ?? $"El bot rechazó la solicitud. Error: {error}"
+            "MISSION_NOT_FOUND" => Msg("error_mission_not_found"),
+            "MISSION_INACTIVE" => Msg("error_mission_inactive"),
+            "ALREADY_COMPLETED" => Msg("error_already_completed"),
+            "UNAUTHORIZED" => Msg("error_unauthorized"),
+            "MISSING_GUILD_ID" => Msg("error_missing_guild"),
+            "MISSING_USER_ID" => Msg("error_missing_user"),
+            "MISSING_MISSION_ID" => Msg("error_missing_mission"),
+            "MISSING_CODE" => Msg("error_missing_code"),
+            "CODE_NOT_FOUND" => Msg("error_code_not_found"),
+            "CODE_ALREADY_USED" => Msg("error_code_used"),
+            "CODE_EXPIRED" => Msg("error_code_expired"),
+            "LINK_SYSTEM_NOT_AVAILABLE" => Msg("error_link_system"),
+            "REQUEST_FAILED" => Msg("error_request_failed", new Dictionary<string, string?>
+            {
+                ["message"] = response.Message ?? ""
+            }),
+            _ => Msg("error_unknown", new Dictionary<string, string?>
+            {
+                ["error"] = error,
+                ["message"] = response.Message ?? ""
+            })
         };
+    }
+private string CleanField(string value)
+    {
+        return (value ?? "")
+            .Replace("|", "/")
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Trim();
+    }
+
+    private void AppendConfigLine(string path, string line)
+    {
+        var content = File.Exists(path)
+            ? File.ReadAllText(path, Encoding.UTF8)
+            : "";
+
+        var separator = content.EndsWith("\n") || content.Length == 0 ? "" : Environment.NewLine;
+
+        File.WriteAllText(
+            path,
+            content + separator + line + Environment.NewLine,
+            Encoding.UTF8
+        );
+    }
+
+    private int RemoveLinesFromFile(string path, Func<string, bool> shouldRemove)
+    {
+        if (!File.Exists(path))
+        {
+            return 0;
+        }
+
+        var lines = File.ReadAllLines(path, Encoding.UTF8).ToList();
+        var nextLines = new List<string>();
+        var removed = 0;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+
+            if (
+                string.IsNullOrWhiteSpace(trimmed) ||
+                trimmed.StartsWith("#") ||
+                !shouldRemove(trimmed))
+            {
+                nextLines.Add(line);
+                continue;
+            }
+
+            removed++;
+        }
+
+        File.WriteAllLines(path, nextLines, Encoding.UTF8);
+        return removed;
+    }
+
+    private bool SimpleMissionExists(string missionId)
+    {
+        lock (_sync)
+        {
+            return _missionsByItemId.Values
+                .SelectMany(list => list)
+                .Any(mission => mission.MissionId.Equals(missionId, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private bool GroupMissionExists(string missionId)
+    {
+        lock (_sync)
+        {
+            return _missionGroups.Any(group =>
+                group.MissionId.Equals(missionId, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private bool RequirementExists(string missionId, string optionId)
+    {
+        lock (_sync)
+        {
+            return _requirementsByMissionId.TryGetValue(missionId, out var requirements) &&
+                requirements.Any(requirement =>
+                    requirement.OptionId.Equals(optionId, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private void AddSimpleCommand(CommandArgs args)
+    {
+        var player = args.Player;
+
+        if (player == null || !player.Active)
+        {
+            return;
+        }
+
+        if (args.Parameters.Count < 2)
+        {
+            player.SendErrorMessage(Msg("admin_addsimple_usage"));
+            return;
+        }
+
+        var heldItem = GetHeldItem(player);
+
+        if (heldItem == null || heldItem.IsAir || heldItem.type <= 0)
+        {
+            player.SendErrorMessage(Msg("admin_item_required"));
+            return;
+        }
+
+        var missionId = CleanField(args.Parameters[0]);
+
+        if (!int.TryParse(args.Parameters[1], out var amount) || amount <= 0)
+        {
+            player.SendErrorMessage(Msg("admin_invalid_amount"));
+            return;
+        }
+
+        var profile = args.Parameters.Count >= 3
+            ? CleanField(args.Parameters[2])
+            : _config.DefaultProfile;
+
+        if (SimpleMissionExists(missionId))
+        {
+            player.SendErrorMessage(Msg("admin_duplicate_simple", new Dictionary<string, string?>
+            {
+                ["missionId"] = missionId
+            }));
+            return;
+        }
+
+        AppendConfigLine(
+            MissionsPath,
+            $"{heldItem.type} | {missionId} | {amount} | {profile}"
+        );
+
+        ReloadFiles();
+
+        player.SendSuccessMessage(Msg("admin_addsimple_success", new Dictionary<string, string?>
+        {
+            ["missionId"] = missionId,
+            ["itemName"] = heldItem.Name,
+            ["itemId"] = heldItem.type.ToString(),
+            ["amount"] = amount.ToString(),
+            ["profile"] = profile
+        }));
+    }
+
+    private void DeleteSimpleCommand(CommandArgs args)
+    {
+        var player = args.Player;
+
+        if (player == null || !player.Active)
+        {
+            return;
+        }
+
+        if (args.Parameters.Count < 1)
+        {
+            player.SendErrorMessage(Msg("admin_delsimple_usage"));
+            return;
+        }
+
+        var missionId = CleanField(args.Parameters[0]);
+
+        var removed = RemoveLinesFromFile(MissionsPath, line =>
+        {
+            var parts = SplitPipe(line);
+            return parts.Length >= 2 &&
+                parts[1].Equals(missionId, StringComparison.OrdinalIgnoreCase);
+        });
+
+        ReloadFiles();
+
+        if (removed <= 0)
+        {
+            player.SendErrorMessage(Msg("admin_nothing_deleted"));
+            return;
+        }
+
+        player.SendSuccessMessage(Msg("admin_delsimple_success", new Dictionary<string, string?>
+        {
+            ["missionId"] = missionId,
+            ["count"] = removed.ToString()
+        }));
+    }
+
+    private void AddGroupCommand(CommandArgs args)
+    {
+        var player = args.Player;
+
+        if (player == null || !player.Active)
+        {
+            return;
+        }
+
+        if (args.Parameters.Count < 3)
+        {
+            player.SendErrorMessage(Msg("admin_addgroup_usage"));
+            return;
+        }
+
+        var missionId = CleanField(args.Parameters[0]);
+        var mode = CleanField(args.Parameters[1]).ToLowerInvariant();
+
+        if (mode != "group_any" && mode != "group_all")
+        {
+            player.SendErrorMessage(Msg("admin_invalid_mode"));
+            return;
+        }
+
+        if (!int.TryParse(args.Parameters[2], out var requiredOptions) || requiredOptions <= 0)
+        {
+            player.SendErrorMessage(Msg("admin_invalid_amount"));
+            return;
+        }
+
+        var profile = args.Parameters.Count >= 4
+            ? CleanField(args.Parameters[3])
+            : _config.DefaultProfile;
+
+        if (GroupMissionExists(missionId))
+        {
+            player.SendErrorMessage(Msg("admin_duplicate_group", new Dictionary<string, string?>
+            {
+                ["missionId"] = missionId
+            }));
+            return;
+        }
+
+        AppendConfigLine(
+            MissionGroupsPath,
+            $"{missionId} | {mode} | {requiredOptions} | {profile}"
+        );
+
+        ReloadFiles();
+
+        player.SendSuccessMessage(Msg("admin_addgroup_success", new Dictionary<string, string?>
+        {
+            ["missionId"] = missionId,
+            ["mode"] = mode,
+            ["amount"] = requiredOptions.ToString(),
+            ["profile"] = profile
+        }));
+    }
+
+    private void DeleteGroupCommand(CommandArgs args)
+    {
+        var player = args.Player;
+
+        if (player == null || !player.Active)
+        {
+            return;
+        }
+
+        if (args.Parameters.Count < 1)
+        {
+            player.SendErrorMessage(Msg("admin_delgroup_usage"));
+            return;
+        }
+
+        var missionId = CleanField(args.Parameters[0]);
+
+        var removedGroups = RemoveLinesFromFile(MissionGroupsPath, line =>
+        {
+            var parts = SplitPipe(line);
+            return parts.Length >= 1 &&
+                parts[0].Equals(missionId, StringComparison.OrdinalIgnoreCase);
+        });
+
+        var removedRequirements = RemoveLinesFromFile(MissionRequirementsPath, line =>
+        {
+            var parts = SplitPipe(line);
+            return parts.Length >= 1 &&
+                parts[0].Equals(missionId, StringComparison.OrdinalIgnoreCase);
+        });
+
+        ReloadFiles();
+
+        if (removedGroups <= 0 && removedRequirements <= 0)
+        {
+            player.SendErrorMessage(Msg("admin_nothing_deleted"));
+            return;
+        }
+
+        player.SendSuccessMessage(Msg("admin_delgroup_success", new Dictionary<string, string?>
+        {
+            ["missionId"] = missionId,
+            ["groups"] = removedGroups.ToString(),
+            ["requirements"] = removedRequirements.ToString()
+        }));
+    }
+
+    private void AddRequirementCommand(CommandArgs args)
+    {
+        var player = args.Player;
+
+        if (player == null || !player.Active)
+        {
+            return;
+        }
+
+        if (args.Parameters.Count < 3)
+        {
+            player.SendErrorMessage(Msg("admin_addreq_usage"));
+            return;
+        }
+
+        var heldItem = GetHeldItem(player);
+
+        if (heldItem == null || heldItem.IsAir || heldItem.type <= 0)
+        {
+            player.SendErrorMessage(Msg("admin_item_required"));
+            return;
+        }
+
+        var missionId = CleanField(args.Parameters[0]);
+        var optionId = CleanField(args.Parameters[1]);
+
+        if (!int.TryParse(args.Parameters[2], out var amount) || amount <= 0)
+        {
+            player.SendErrorMessage(Msg("admin_invalid_amount"));
+            return;
+        }
+
+        if (!GroupMissionExists(missionId))
+        {
+            player.SendErrorMessage(Msg("admin_group_missing", new Dictionary<string, string?>
+            {
+                ["missionId"] = missionId
+            }));
+            return;
+        }
+
+        if (RequirementExists(missionId, optionId))
+        {
+            player.SendErrorMessage(Msg("admin_duplicate_requirement", new Dictionary<string, string?>
+            {
+                ["missionId"] = missionId,
+                ["optionId"] = optionId
+            }));
+            return;
+        }
+
+        var label = args.Parameters.Count >= 4
+            ? CleanField(string.Join(" ", args.Parameters.Skip(3)))
+            : CleanField(heldItem.Name);
+
+        AppendConfigLine(
+            MissionRequirementsPath,
+            $"{missionId} | {optionId} | {heldItem.type} | {amount} | {label}"
+        );
+
+        ReloadFiles();
+
+        player.SendSuccessMessage(Msg("admin_addreq_success", new Dictionary<string, string?>
+        {
+            ["missionId"] = missionId,
+            ["optionId"] = optionId,
+            ["itemName"] = heldItem.Name,
+            ["itemId"] = heldItem.type.ToString(),
+            ["amount"] = amount.ToString(),
+            ["label"] = label
+        }));
+    }
+
+    private void DeleteRequirementCommand(CommandArgs args)
+    {
+        var player = args.Player;
+
+        if (player == null || !player.Active)
+        {
+            return;
+        }
+
+        if (args.Parameters.Count < 2)
+        {
+            player.SendErrorMessage(Msg("admin_delreq_usage"));
+            return;
+        }
+
+        var missionId = CleanField(args.Parameters[0]);
+        var optionId = CleanField(args.Parameters[1]);
+
+        var removed = RemoveLinesFromFile(MissionRequirementsPath, line =>
+        {
+            var parts = SplitPipe(line);
+            return parts.Length >= 2 &&
+                parts[0].Equals(missionId, StringComparison.OrdinalIgnoreCase) &&
+                parts[1].Equals(optionId, StringComparison.OrdinalIgnoreCase);
+        });
+
+        ReloadFiles();
+
+        if (removed <= 0)
+        {
+            player.SendErrorMessage(Msg("admin_nothing_deleted"));
+            return;
+        }
+
+        player.SendSuccessMessage(Msg("admin_delreq_success", new Dictionary<string, string?>
+        {
+            ["missionId"] = missionId,
+            ["optionId"] = optionId,
+            ["count"] = removed.ToString()
+        }));
     }
 
     private void SaveConfig()
@@ -1481,7 +2155,7 @@ private Item? GetHeldItem(TSPlayer player)
             SaveConfig();
         }
 
-        args.Player.SendSuccessMessage("Sistema de entregas activado.");
+        args.Player.SendSuccessMessage(Msg("admin_enabled"));
     }
 
     private void DisableCommand(CommandArgs args)
@@ -1492,19 +2166,38 @@ private Item? GetHeldItem(TSPlayer player)
             SaveConfig();
         }
 
-        args.Player.SendSuccessMessage("Sistema de entregas desactivado temporalmente.");
+        args.Player.SendSuccessMessage(Msg("admin_disabled"));
     }
 
     private void StatusCommand(CommandArgs args)
     {
-        var status = _config.Enabled ? "Activado" : "Desactivado";
-        var consume = _config.ConsumeItemOnSuccess ? "Sí" : "No";
+        var status = _config.Enabled ? Msg("status_enabled") : Msg("status_disabled");
+        var consume = _config.ConsumeItemOnSuccess ? Msg("status_yes") : Msg("status_no");
 
-        args.Player.SendInfoMessage($"Sistema de entregas: {status}");
-        args.Player.SendInfoMessage($"Perfil por defecto: {_config.DefaultProfile}");
-        args.Player.SendInfoMessage($"Consumir items al completar: {consume}");
-        args.Player.SendInfoMessage($"Misiones simples: {_missionsByItemId.Values.Sum(list => list.Count)}");
-        args.Player.SendInfoMessage($"Misiones múltiples: {_missionGroups.Count}");
+        args.Player.SendInfoMessage(Msg("status_line_system", new Dictionary<string, string?>
+        {
+            ["status"] = status
+        }));
+
+        args.Player.SendInfoMessage(Msg("status_line_profile", new Dictionary<string, string?>
+        {
+            ["profile"] = _config.DefaultProfile
+        }));
+
+        args.Player.SendInfoMessage(Msg("status_line_consume", new Dictionary<string, string?>
+        {
+            ["consume"] = consume
+        }));
+
+        args.Player.SendInfoMessage(Msg("status_line_simple", new Dictionary<string, string?>
+        {
+            ["count"] = _missionsByItemId.Values.Sum(list => list.Count).ToString()
+        }));
+
+        args.Player.SendInfoMessage(Msg("status_line_group", new Dictionary<string, string?>
+        {
+            ["count"] = _missionGroups.Count.ToString()
+        }));
     }
 
     private void ItemInfoCommand(CommandArgs args)
@@ -1520,11 +2213,16 @@ private Item? GetHeldItem(TSPlayer player)
 
         if (item == null || item.IsAir || item.type <= 0)
         {
-            player.SendErrorMessage("No tienes ningún item válido en la mano.");
+            player.SendErrorMessage(Msg("item_no_valid_hand"));
             return;
         }
 
-        player.SendInfoMessage($"Item en mano: {item.Name} | ID: {item.type} | Cantidad: {item.stack}");
+        player.SendInfoMessage(Msg("item_info", new Dictionary<string, string?>
+        {
+            ["itemName"] = item.Name,
+            ["itemId"] = item.type.ToString(),
+            ["amount"] = item.stack.ToString()
+        }));
     }
 
     private void ReloadCommand(CommandArgs args)
@@ -1534,14 +2232,25 @@ private Item? GetHeldItem(TSPlayer player)
             EnsureFiles();
             ReloadFiles();
 
-            args.Player.SendSuccessMessage("TerrariaMissionBridge recargado correctamente.");
-            args.Player.SendInfoMessage($"Estado: {(_config.Enabled ? "Activado" : "Desactivado")}");
-            args.Player.SendInfoMessage($"Perfiles: {_profiles.Count} | Simples: {_missionsByItemId.Values.Sum(list => list.Count)} | Múltiples: {_missionGroups.Count} | Jugadores vinculados: {_players.Count}");
+            args.Player.SendSuccessMessage(Msg("reload_success"));
+
+            args.Player.SendInfoMessage(Msg("reload_status", new Dictionary<string, string?>
+            {
+                ["status"] = _config.Enabled ? Msg("status_enabled") : Msg("status_disabled")
+            }));
+
+            args.Player.SendInfoMessage(Msg("reload_counts", new Dictionary<string, string?>
+            {
+                ["profiles"] = _profiles.Count.ToString(),
+                ["simple"] = _missionsByItemId.Values.Sum(list => list.Count).ToString(),
+                ["groups"] = _missionGroups.Count.ToString(),
+                ["players"] = _players.Count.ToString()
+            }));
         }
         catch (Exception ex)
         {
             TShock.Log.ConsoleError($"[TerrariaMissionBridge] Error recargando: {ex}");
-            args.Player.SendErrorMessage("No se pudo recargar el plugin. Revisa consola.");
+            args.Player.SendErrorMessage(Msg("reload_error"));
         }
     }
 
