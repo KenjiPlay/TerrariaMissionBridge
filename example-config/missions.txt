@@ -2,4 +2,4 @@
 # itemId | missionId | amount | profile
 # profile es opcional. Si no lo pones, usa DefaultProfile.
 
-318 | 4 | 60 | main
+

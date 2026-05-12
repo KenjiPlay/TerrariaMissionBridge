@@ -11,8 +11,9 @@
 5 | dungeon | 3205 | 2 | Caja calabozo
 5 | obsidian | 4877 | 2 | Caja obsidiana
 2 | trophydm | 1361 | 1 | Trofeo Devoramundos
-2 | trophycc | 4926 | 1 | Trofeo Cerebro
+2 | trophycc | 1362 | 1 | Trofeo Cerebro
 3 | ende | 57 | 100 | Lingotes Endemoniados
 3 | carme | 1257 | 100 | Lingotes Carmesí 
 1 | bunnydia | 4843 | 5 | Conejo diamante
 1 | squidia | 4836 | 5 | Ardilla diamante
+4 | respfue | 318 | 60 | Resplandor fuego
