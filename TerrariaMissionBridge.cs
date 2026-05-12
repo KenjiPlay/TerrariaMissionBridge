@@ -46,7 +46,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     public override string Name => "TerrariaMissionBridge";
     public override string Author => "Rumic Bot / OpenAI";
     public override string Description => "Conecta entregas de items de Terraria con misiones de un bot de Discord.";
-    public override Version Version => new Version(1, 6, 0);
+    public override Version Version => new Version(1, 7, 0);
 
     public TerrariaMissionBridgePlugin(Main game) : base(game)
     {
@@ -296,6 +296,7 @@ private List<string> BuildDefaultMessagesFileLines()
 
             ["deliver_need_link"] = "[c/ffcc00:🔗 Primero vincula tu Discord con:] [c/ffffff:/discord <codigo>]",
             ["deliver_no_ready_mission"] = "[c/ed4245:❌ No tienes ningún item o conjunto de items listo para entregar.]",
+            ["deliver_no_pending_mission"] = "[c/ffcc00:⚠️ Tienes items de misiones detectadas, pero ninguna misión pendiente disponible para completar. Puede que sean misiones ya completadas, inactivas o inexistentes en el bot.]",
             ["deliver_error"] = "[c/ed4245:❌ Ocurrió un error entregando la misión.]",
             ["deliver_simple_missing_hand"] = "[c/ed4245:❌ Ya no tienes el item requerido en la mano.]",
             ["deliver_validating"] = "[c/57b8ff:🔎 Validando misión] [c/ffffff:{missionId}] [c/57b8ff:con el bot...]",
@@ -893,71 +894,107 @@ private async void DeliverCommand(CommandArgs args)
             return;
         }
 
-        if (TryFindSimpleMission(player, out var simpleMission, out var simpleProfile))
+        var attemptedAnyCandidate = false;
+
+        foreach (var candidate in FindSimpleMissionCandidates(player))
         {
-            await DeliverSimpleMissionAsync(player, discordUserId, simpleMission, simpleProfile);
+            attemptedAnyCandidate = true;
+
+            var result = await TryDeliverSimpleMissionAsync(
+                player,
+                discordUserId,
+                candidate.Mission,
+                candidate.Profile);
+
+            if (result.Completed)
+            {
+                return;
+            }
+
+            if (result.ShouldTryNext)
+            {
+                continue;
+            }
+
             return;
         }
 
-        if (TryFindGroupMission(player, out var groupMission, out var groupProfile, out var groupPlan))
+        foreach (var candidate in FindGroupMissionCandidates(player))
         {
-            await DeliverGroupMissionAsync(player, discordUserId, groupMission, groupProfile, groupPlan);
+            attemptedAnyCandidate = true;
+
+            var result = await TryDeliverGroupMissionAsync(
+                player,
+                discordUserId,
+                candidate.Group,
+                candidate.Profile,
+                candidate.Plan);
+
+            if (result.Completed)
+            {
+                return;
+            }
+
+            if (result.ShouldTryNext)
+            {
+                continue;
+            }
+
+            return;
+        }
+
+        if (attemptedAnyCandidate)
+        {
+            player.SendErrorMessage(Msg("deliver_no_pending_mission"));
             return;
         }
 
         player.SendErrorMessage(Msg("deliver_no_ready_mission"));
     }
 
-    private bool TryFindSimpleMission(
-        TSPlayer player,
-        out MissionEntry mission,
-        out BridgeProfile profile)
+    private List<SimpleMissionCandidate> FindSimpleMissionCandidates(TSPlayer player)
     {
-        mission = new MissionEntry();
-        profile = new BridgeProfile();
-
+        var candidates = new List<SimpleMissionCandidate>();
         var heldItem = GetHeldItem(player);
 
         if (heldItem == null || heldItem.IsAir || heldItem.type <= 0 || heldItem.stack <= 0)
         {
-            return false;
+            return candidates;
         }
-
-        MissionEntry? foundMission = null;
-        BridgeProfile? foundProfile = null;
 
         lock (_sync)
         {
-            if (_missionsByItemId.TryGetValue(heldItem.type, out var missions))
+            if (!_missionsByItemId.TryGetValue(heldItem.type, out var missions))
             {
-                foundMission = missions.FirstOrDefault(entry => heldItem.stack >= entry.Amount);
+                return candidates;
+            }
 
-                if (foundMission != null)
+            foreach (var mission in missions)
+            {
+                if (heldItem.stack < mission.Amount)
                 {
-                    _profiles.TryGetValue(foundMission.ProfileName, out foundProfile);
+                    continue;
                 }
+
+                if (!_profiles.TryGetValue(mission.ProfileName, out var profile))
+                {
+                    continue;
+                }
+
+                candidates.Add(new SimpleMissionCandidate
+                {
+                    Mission = mission,
+                    Profile = profile
+                });
             }
         }
 
-        if (foundMission == null || foundProfile == null)
-        {
-            return false;
-        }
-
-        mission = foundMission;
-        profile = foundProfile;
-        return true;
+        return candidates;
     }
 
-    private bool TryFindGroupMission(
-        TSPlayer player,
-        out MissionGroup group,
-        out BridgeProfile profile,
-        out GroupDeliveryPlan plan)
+    private List<GroupMissionCandidate> FindGroupMissionCandidates(TSPlayer player)
     {
-        group = new MissionGroup();
-        profile = new BridgeProfile();
-        plan = new GroupDeliveryPlan();
+        var candidates = new List<GroupMissionCandidate>();
 
         List<MissionGroup> groupsSnapshot;
         Dictionary<string, List<GroupRequirement>> requirementsSnapshot;
@@ -973,31 +1010,44 @@ private async void DeliverCommand(CommandArgs args)
             profilesSnapshot = new Dictionary<string, BridgeProfile>(_profiles, StringComparer.OrdinalIgnoreCase);
         }
 
-        foreach (var currentGroup in groupsSnapshot)
+        foreach (var group in groupsSnapshot)
         {
-            if (!requirementsSnapshot.TryGetValue(currentGroup.MissionId, out var requirements))
+            if (!requirementsSnapshot.TryGetValue(group.MissionId, out var requirements))
             {
                 continue;
             }
 
-            if (!profilesSnapshot.TryGetValue(currentGroup.ProfileName, out var currentProfile))
+            if (!profilesSnapshot.TryGetValue(group.ProfileName, out var profile))
             {
                 continue;
             }
 
-            if (TryBuildGroupDeliveryPlan(player, currentGroup, requirements, out var currentPlan))
+            if (!TryBuildGroupDeliveryPlan(player, group, requirements, out var plan))
             {
-                group = currentGroup;
-                profile = currentProfile;
-                plan = currentPlan;
-                return true;
+                continue;
             }
+
+            candidates.Add(new GroupMissionCandidate
+            {
+                Group = group,
+                Profile = profile,
+                Plan = plan
+            });
         }
 
-        return false;
+        return candidates;
     }
 
-    private async System.Threading.Tasks.Task DeliverSimpleMissionAsync(
+    private bool ShouldTryNextMission(BridgeResponse response)
+    {
+        var error = response.Error ?? "";
+
+        return error.Equals("ALREADY_COMPLETED", StringComparison.OrdinalIgnoreCase) ||
+            error.Equals("MISSION_INACTIVE", StringComparison.OrdinalIgnoreCase) ||
+            error.Equals("MISSION_NOT_FOUND", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async System.Threading.Tasks.Task<DeliveryAttemptResult> TryDeliverSimpleMissionAsync(
         TSPlayer player,
         string discordUserId,
         MissionEntry mission,
@@ -1008,7 +1058,7 @@ private async void DeliverCommand(CommandArgs args)
         if (heldItem == null || heldItem.IsAir || heldItem.type != mission.ItemId || heldItem.stack < mission.Amount)
         {
             player.SendErrorMessage(Msg("deliver_simple_missing_hand"));
-            return;
+            return DeliveryAttemptResult.Stop();
         }
 
         player.SendInfoMessage(Msg("deliver_validating", new Dictionary<string, string?>
@@ -1020,8 +1070,13 @@ private async void DeliverCommand(CommandArgs args)
 
         if (!prepareResponse.Ok)
         {
+            if (ShouldTryNextMission(prepareResponse))
+            {
+                return DeliveryAttemptResult.TryNext();
+            }
+
             player.SendErrorMessage(GetFriendlyBridgeError(prepareResponse));
-            return;
+            return DeliveryAttemptResult.Stop();
         }
 
         var revalidatedItem = GetHeldItem(player);
@@ -1033,7 +1088,7 @@ private async void DeliverCommand(CommandArgs args)
             revalidatedItem.stack < mission.Amount)
         {
             player.SendErrorMessage(Msg("deliver_revalidate_failed"));
-            return;
+            return DeliveryAttemptResult.Stop();
         }
 
         var consumedItems = new List<ConsumedItem>();
@@ -1045,7 +1100,7 @@ private async void DeliverCommand(CommandArgs args)
             if (consumedItem == null)
             {
                 player.SendErrorMessage(Msg("deliver_consume_failed"));
-                return;
+                return DeliveryAttemptResult.Stop();
             }
 
             consumedItems.Add(consumedItem);
@@ -1061,8 +1116,14 @@ private async void DeliverCommand(CommandArgs args)
         if (!completeResponse.Ok)
         {
             RefundConsumedItems(player, consumedItems);
+
+            if (ShouldTryNextMission(completeResponse))
+            {
+                return DeliveryAttemptResult.TryNext();
+            }
+
             player.SendErrorMessage(GetFriendlyBridgeError(completeResponse));
-            return;
+            return DeliveryAttemptResult.Stop();
         }
 
         player.SendSuccessMessage(Msg("deliver_success", new Dictionary<string, string?>
@@ -1075,9 +1136,11 @@ private async void DeliverCommand(CommandArgs args)
         {
             player.SendInfoMessage(completeResponse.RewardText);
         }
+
+        return DeliveryAttemptResult.CompletedResult();
     }
 
-    private async System.Threading.Tasks.Task DeliverGroupMissionAsync(
+    private async System.Threading.Tasks.Task<DeliveryAttemptResult> TryDeliverGroupMissionAsync(
         TSPlayer player,
         string discordUserId,
         MissionGroup group,
@@ -1093,8 +1156,13 @@ private async void DeliverCommand(CommandArgs args)
 
         if (!prepareResponse.Ok)
         {
+            if (ShouldTryNextMission(prepareResponse))
+            {
+                return DeliveryAttemptResult.TryNext();
+            }
+
             player.SendErrorMessage(GetFriendlyBridgeError(prepareResponse));
-            return;
+            return DeliveryAttemptResult.Stop();
         }
 
         List<GroupRequirement>? requirements;
@@ -1108,7 +1176,7 @@ private async void DeliverCommand(CommandArgs args)
         if (requirements == null || !TryBuildGroupDeliveryPlan(player, group, requirements, out var finalPlan))
         {
             player.SendErrorMessage(Msg("deliver_revalidate_group_failed"));
-            return;
+            return DeliveryAttemptResult.Stop();
         }
 
         List<ConsumedItem> consumedItems = new List<ConsumedItem>();
@@ -1120,7 +1188,7 @@ private async void DeliverCommand(CommandArgs args)
             if (consumedItems.Count <= 0)
             {
                 player.SendErrorMessage(Msg("deliver_consume_group_failed"));
-                return;
+                return DeliveryAttemptResult.Stop();
             }
         }
 
@@ -1134,8 +1202,14 @@ private async void DeliverCommand(CommandArgs args)
         if (!completeResponse.Ok)
         {
             RefundConsumedItems(player, consumedItems);
+
+            if (ShouldTryNextMission(completeResponse))
+            {
+                return DeliveryAttemptResult.TryNext();
+            }
+
             player.SendErrorMessage(GetFriendlyBridgeError(completeResponse));
-            return;
+            return DeliveryAttemptResult.Stop();
         }
 
         player.SendSuccessMessage(Msg("deliver_success", new Dictionary<string, string?>
@@ -1164,6 +1238,8 @@ private async void DeliverCommand(CommandArgs args)
         {
             player.SendInfoMessage(completeResponse.RewardText);
         }
+
+        return DeliveryAttemptResult.CompletedResult();
     }
 
     private bool TryBuildGroupDeliveryPlan(
@@ -2328,6 +2404,52 @@ private string CleanField(string value)
         public int Stack { get; set; }
         public byte Prefix { get; set; }
         public string Name { get; set; } = "";
+    }
+
+    private sealed class SimpleMissionCandidate
+    {
+        public MissionEntry Mission { get; set; } = new MissionEntry();
+        public BridgeProfile Profile { get; set; } = new BridgeProfile();
+    }
+
+    private sealed class GroupMissionCandidate
+    {
+        public MissionGroup Group { get; set; } = new MissionGroup();
+        public BridgeProfile Profile { get; set; } = new BridgeProfile();
+        public GroupDeliveryPlan Plan { get; set; } = new GroupDeliveryPlan();
+    }
+
+    private sealed class DeliveryAttemptResult
+    {
+        public bool Completed { get; set; }
+        public bool ShouldTryNext { get; set; }
+
+        public static DeliveryAttemptResult CompletedResult()
+        {
+            return new DeliveryAttemptResult
+            {
+                Completed = true,
+                ShouldTryNext = false
+            };
+        }
+
+        public static DeliveryAttemptResult TryNext()
+        {
+            return new DeliveryAttemptResult
+            {
+                Completed = false,
+                ShouldTryNext = true
+            };
+        }
+
+        public static DeliveryAttemptResult Stop()
+        {
+            return new DeliveryAttemptResult
+            {
+                Completed = false,
+                ShouldTryNext = false
+            };
+        }
     }
 
     private sealed class LinkVerifyRequest
