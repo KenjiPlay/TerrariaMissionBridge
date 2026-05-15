@@ -1,4 +1,0 @@
-﻿# playerName | discordUserId
-# Este archivo se llena usando /discord <codigo>.
-
-Kenji | 1059600537462517780
