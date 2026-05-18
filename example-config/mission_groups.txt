@@ -4,9 +4,9 @@
 # group_any = requiere cumplir X opciones de todas las configuradas
 # group_all = requiere cumplir todas las opciones
 
-1 | group_any | 1 | main
-2 | group_all | 2 | main
+1 | group_all | 1 | main
+2 | group_all | 3 | main
 3 | group_any | 1 | main
 4 | group_all | 1 | main
-5 | group_any | 5 | main
+5 | group_any | 4 | main
 

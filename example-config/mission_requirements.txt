@@ -1,19 +1,17 @@
 # Requisitos para misiones múltiples
 # missionId | optionId | itemId | amount | label
 
-5 | ocean | 5002 | 2 | Caja oceano
-5 | frozen | 4405 | 2 | Caja congelada
-5 | oasis | 4407 | 2 | Caja oasis
-5 | jungle | 3208 | 2 | Caja selva
-5 | corruption | 3203 | 2 | Caja corrompida
-5 | crimson | 3204 | 2 | Caja carmesí
-5 | sky | 3206 | 2 | Caja celestial
-5 | dungeon | 3205 | 2 | Caja calabozo
-5 | obsidian | 4877 | 2 | Caja obsidiana
-2 | trophydm | 1361 | 1 | Trofeo Devoramundos
-2 | trophycc | 1362 | 1 | Trofeo Cerebro
-3 | ende | 57 | 100 | Lingotes Endemoniados
-3 | carme | 1257 | 100 | Lingotes Carmesí 
-1 | bunnydia | 4843 | 5 | Conejo diamante
-1 | squidia | 4836 | 5 | Ardilla diamante
-4 | respfue | 318 | 60 | Resplandor fuego
+
+1 | pergala | 5340 | 5 | Perla galáctica
+2 | almaluz | 520 | 50 | Alma luz
+2 | almanoc | 521 | 50 | Alma noche
+2 | almvue | 575 | 50 | Alma vuelo
+3 | linadam | 391 | 50 | Lingotes adamantita
+3 | lintita | 1198 | 50 | Lingotes titanio
+4 | gusagom | 5341 | 2 | Gusano goma
+5 | selva | 1533 | 1 | Llave selva
+5 | corrup | 1534 | 1 | Llave corrupta
+5 | carme | 1535 | 1 | Llave carmesí
+5 | sagra | 1536 | 1 | Llave sagrada
+5 | congel | 1537 | 1 | Llave congelada
+5 | desier | 4714 | 1 | Llave desierto

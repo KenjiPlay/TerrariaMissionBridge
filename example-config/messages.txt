@@ -1,62 +1,77 @@
-# TerrariaMissionBridge messages
+﻿# TerrariaMissionBridge messages
 # Soporta colores de TShock:
 # [c/57f287:Texto verde]
 # [c/ed4245:Texto rojo]
 # [c/f5a9b8:Texto rosa]
 #
 # Placeholders disponibles:
-# {player}
-# {code}
-# {missionId}
-# {missionTitle}
-# {itemName}
-# {itemId}
-# {amount}
-# {label}
-# {rewardText}
-# {status}
-# {profile}
-# {count}
-# {consume}
-# {error}
-# {message}
+# {player}, {code}, {missionId}, {missionTitle}, {itemName}, {itemId}, {amount}, {label}
+# {rewardText}, {status}, {profile}, {count}, {consume}, {error}, {message}
+# {optionId}, {mode}, {profiles}, {simple}, {groups}, {players}, {requirements}
 
 system_disabled = [c/ed4245:⛔ El sistema de entregas está desactivado temporalmente.]
-
 discord_usage = [c/ffcc00:Uso:] [c/ffffff:/discord <codigo>]
 discord_invalid_code = [c/ed4245:❌ Código inválido.] [c/ffffff:Genera uno desde Discord con linkterraria.]
+discord_missing_profile = [c/ed4245:❌ No existe el perfil por defecto] [c/ffffff:{profile}] [c/ed4245:en profiles.txt.]
 discord_verifying = [c/57b8ff:🔎 Verificando código con Discord...]
 discord_link_success = [c/57f287:✅ Tu personaje quedó vinculado correctamente con tu cuenta de Discord.]
-
+discord_link_error = [c/ed4245:❌ Ocurrió un error vinculando tu cuenta.]
 deliver_need_link = [c/ffcc00:🔗 Primero vincula tu Discord con:] [c/ffffff:/discord <codigo>]
 deliver_no_ready_mission = [c/ed4245:❌ No tienes ningún item o conjunto de items listo para entregar.]
+deliver_no_pending_mission = [c/ffcc00:⚠️ Tienes items de misiones detectadas, pero ninguna misión pendiente disponible para completar. Puede que sean misiones ya completadas, inactivas o inexistentes en el bot.]
+deliver_error = [c/ed4245:❌ Ocurrió un error entregando la misión.]
+deliver_simple_missing_hand = [c/ed4245:❌ Ya no tienes el item requerido en la mano.]
 deliver_validating = [c/57b8ff:🔎 Validando misión] [c/ffffff:{missionId}] [c/57b8ff:con el bot...]
 deliver_validating_group = [c/57b8ff:🔎 Validando misión múltiple] [c/ffffff:{missionId}] [c/57b8ff:con el bot...]
+deliver_revalidate_failed = [c/ed4245:❌ La misión fue validada, pero ya no tienes el item requerido. No se completó ni se consumió nada.]
+deliver_revalidate_group_failed = [c/ed4245:❌ La misión fue validada, pero ya no tienes los items requeridos. No se completó ni se consumió nada.]
+deliver_consume_failed = [c/ed4245:❌ No pude consumir el item requerido. No se completó la misión.]
+deliver_consume_group_failed = [c/ed4245:❌ No pude consumir los items requeridos. No se completó la misión.]
 deliver_completing = [c/f5a9b8:📨 Completando misión] [c/ffffff:{missionId}] [c/f5a9b8:con el bot...]
 deliver_completing_group = [c/f5a9b8:📨 Completando misión múltiple] [c/ffffff:{missionId}] [c/f5a9b8:con el bot...]
 deliver_success = [c/57f287:✅ Misión completada:] [c/ffffff:{missionTitle}]
 deliver_items_title = [c/f5a9b8:📦 Items entregados:]
 deliver_item_line = [c/ffffff:- {amount}x {label}]
-
 item_consumed = [c/f5a9b8:📦 Se consumieron] [c/ffffff:{amount}x {itemName}].
-item_missing_hand = [c/ed4245:❌ Ya no tienes el item requerido en la mano.]
 item_no_valid_hand = [c/ed4245:❌ No tienes ningún item válido en la mano.]
 item_info = [c/57b8ff:Item en mano:] [c/ffffff:{itemName}] [c/57b8ff:| ID:] [c/ffffff:{itemId}] [c/57b8ff:| Cantidad:] [c/ffffff:{amount}]
-
+refund_attempt = [c/ffcc00:⚠️ El bot rechazó la misión después de consumir items. Se intentó devolver lo consumido.]
+refund_failed = [c/ed4245:❌ No se pudo devolver automáticamente {amount}x item ID {itemId}. Contacta a un admin.]
 reload_success = [c/57f287:✅ TerrariaMissionBridge recargado correctamente.]
 reload_error = [c/ed4245:❌ No se pudo recargar el plugin. Revisa consola.]
-
+reload_status = [c/57b8ff:Estado:] {status}
+reload_counts = [c/57b8ff:Perfiles:] [c/ffffff:{profiles}] [c/57b8ff:| Simples:] [c/ffffff:{simple}] [c/57b8ff:| Múltiples:] [c/ffffff:{groups}] [c/57b8ff:| Jugadores vinculados:] [c/ffffff:{players}]
 status_enabled = [c/57f287:Activado]
 status_disabled = [c/ed4245:Desactivado]
+status_yes = Sí
+status_no = No
 status_line_system = [c/57b8ff:Sistema de entregas:] {status}
 status_line_profile = [c/57b8ff:Perfil por defecto:] [c/ffffff:{profile}]
 status_line_consume = [c/57b8ff:Consumir items al completar:] [c/ffffff:{consume}]
 status_line_simple = [c/57b8ff:Misiones simples:] [c/ffffff:{count}]
 status_line_group = [c/57b8ff:Misiones múltiples:] [c/ffffff:{count}]
-
 admin_enabled = [c/57f287:✅ Sistema de entregas activado.]
 admin_disabled = [c/ffcc00:⚠️ Sistema de entregas desactivado temporalmente.]
-
+admin_item_required = [c/ed4245:❌ Debes tener un item válido en la mano.]
+admin_invalid_amount = [c/ed4245:❌ La cantidad debe ser un número entero mayor que 0.]
+admin_invalid_mode = [c/ed4245:❌ Modo inválido. Usa group_any o group_all.]
+admin_duplicate_simple = [c/ffcc00:⚠️ Ya existe una misión simple con ID] [c/ffffff:{missionId}][c/ffcc00:.]
+admin_duplicate_group = [c/ffcc00:⚠️ Ya existe una misión múltiple con ID] [c/ffffff:{missionId}][c/ffcc00:.]
+admin_duplicate_requirement = [c/ffcc00:⚠️ Ya existe el requisito] [c/ffffff:{optionId}] [c/ffcc00:para la misión] [c/ffffff:{missionId}][c/ffcc00:.]
+admin_group_missing = [c/ed4245:❌ No existe una misión múltiple con ID] [c/ffffff:{missionId}][c/ed4245:. Crea primero el grupo con /mbaddgroup.]
+admin_nothing_deleted = [c/ffcc00:⚠️ No se encontró nada para eliminar.]
+admin_addsimple_usage = [c/ffcc00:Uso:] [c/ffffff:/mbaddsimple <missionId> <amount> [profile]]
+admin_addsimple_success = [c/57f287:✅ Misión simple agregada:] [c/ffffff:{missionId}] [c/57b8ff:| Item:] [c/ffffff:{itemName}] [c/57b8ff:ID:] [c/ffffff:{itemId}] [c/57b8ff:Cantidad:] [c/ffffff:{amount}] [c/57b8ff:Perfil:] [c/ffffff:{profile}]
+admin_delsimple_usage = [c/ffcc00:Uso:] [c/ffffff:/mbdelsimple <missionId>]
+admin_delsimple_success = [c/57f287:✅ Misión simple eliminada:] [c/ffffff:{missionId}] [c/57b8ff:Líneas borradas:] [c/ffffff:{count}]
+admin_addgroup_usage = [c/ffcc00:Uso:] [c/ffffff:/mbaddgroup <missionId> <group_any|group_all> <requiredOptions> [profile]]
+admin_addgroup_success = [c/57f287:✅ Misión múltiple agregada:] [c/ffffff:{missionId}] [c/57b8ff:Modo:] [c/ffffff:{mode}] [c/57b8ff:Opciones requeridas:] [c/ffffff:{amount}] [c/57b8ff:Perfil:] [c/ffffff:{profile}]
+admin_delgroup_usage = [c/ffcc00:Uso:] [c/ffffff:/mbdelgroup <missionId>]
+admin_delgroup_success = [c/57f287:✅ Misión múltiple eliminada:] [c/ffffff:{missionId}] [c/57b8ff:Grupos borrados:] [c/ffffff:{groups}] [c/57b8ff:Requisitos borrados:] [c/ffffff:{requirements}]
+admin_addreq_usage = [c/ffcc00:Uso:] [c/ffffff:/mbaddreq <missionId> <optionId> <amount> [label...]]
+admin_addreq_success = [c/57f287:✅ Requisito agregado:] [c/ffffff:{missionId}] [c/57b8ff:| Opción:] [c/ffffff:{optionId}] [c/57b8ff:| Item:] [c/ffffff:{itemName}] [c/57b8ff:ID:] [c/ffffff:{itemId}] [c/57b8ff:Cantidad:] [c/ffffff:{amount}]
+admin_delreq_usage = [c/ffcc00:Uso:] [c/ffffff:/mbdelreq <missionId> <optionId>]
+admin_delreq_success = [c/57f287:✅ Requisito eliminado:] [c/ffffff:{missionId}] [c/57b8ff:| Opción:] [c/ffffff:{optionId}] [c/57b8ff:Líneas borradas:] [c/ffffff:{count}]
 error_mission_not_found = [c/ed4245:❌ Esa misión no existe en el bot.]
 error_mission_inactive = [c/ed4245:❌ Esa misión está inactiva en el bot.]
 error_already_completed = [c/ffcc00:⚠️ Ya completaste esa misión. No se consumió el item.]

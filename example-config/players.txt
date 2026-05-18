@@ -1,0 +1,3 @@
+﻿# playerName | discordUserId
+# Este archivo se llena usando /discord <codigo>.
+# No se incluyen vínculos reales en el paquete generado para evitar filtrar IDs de usuarios.
