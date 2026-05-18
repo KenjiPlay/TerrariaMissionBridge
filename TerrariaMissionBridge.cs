@@ -44,7 +44,7 @@ public sealed class TerrariaMissionBridgePlugin : TerrariaPlugin
     private string MessagesPath => Path.Combine(PluginDirectory, "messages.txt");
 
     public override string Name => "TerrariaMissionBridge";
-    public override string Author => "Rumic Bot / OpenAI";
+    public override string Author => "CLEconomy / OpenAI";
     public override string Description => "Conecta entregas de items de Terraria con misiones de un bot de Discord.";
     public override Version Version => new Version(1, 7, 0);
 
